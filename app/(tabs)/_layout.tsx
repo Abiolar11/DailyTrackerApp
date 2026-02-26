@@ -1,62 +1,98 @@
-// template
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
 import { NativeTabs, Icon, Label } from "expo-router/unstable-native-tabs";
 import { BlurView } from "expo-blur";
+import { Platform, StyleSheet } from "react-native";
 import { SymbolView } from "expo-symbols";
-import { Platform, StyleSheet, useColorScheme } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import React from "react";
-
 import Colors from "@/constants/colors";
 
-//IMPORTANT: iOS 26 Exists, feel free to use NativeTabs for native tabs with liquid glass support.
 function NativeTabLayout() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Home</Label>
+        <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
+        <Label>Today</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="schedule">
+        <Icon sf={{ default: "calendar.day.timeline.left", selected: "calendar.day.timeline.left" }} />
+        <Label>Schedule</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="history">
+        <Icon sf={{ default: "chart.bar.fill", selected: "chart.bar.fill" }} />
+        <Label>Learned</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
 
 function ClassicTabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.light.tint,
-        tabBarInactiveTintColor: Colors.light.tabIconDefault,
-        headerShown: true,
+        tabBarActiveTintColor: Colors.palette.blue,
+        tabBarInactiveTintColor: Colors.theme.textMuted,
+        headerShown: false,
         tabBarStyle: {
           position: "absolute",
           backgroundColor: Platform.select({
             ios: "transparent",
-            android: isDark ? "#000" : "#fff",
+            android: Colors.theme.bg1,
           }),
-          borderTopWidth: 0,
-          elevation: 0,
+          borderTopColor: Colors.theme.border,
+          borderTopWidth: 1,
+          height: Platform.OS === "web" ? 84 : 84,
+          paddingBottom: Platform.OS === "web" ? 34 : 0,
         },
         tabBarBackground: () =>
           Platform.OS === "ios" ? (
             <BlurView
-              intensity={100}
-              tint={isDark ? "dark" : "light"}
+              intensity={80}
+              tint="dark"
               style={StyleSheet.absoluteFill}
             />
           ) : null,
+        tabBarLabelStyle: {
+          fontFamily: "DMSans_500Medium",
+          fontSize: 11,
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
-          tabBarIcon: ({ color }) => (
-            <SymbolView name="house" tintColor={color} size={24} />
-          ),
+          title: "Today",
+          tabBarIcon: ({ color, size }) =>
+            Platform.OS === "ios" ? (
+              <SymbolView name="sparkles" tintColor={color} size={size} />
+            ) : (
+              <Feather name="zap" size={size} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="schedule"
+        options={{
+          title: "Schedule",
+          tabBarIcon: ({ color, size }) =>
+            Platform.OS === "ios" ? (
+              <SymbolView name="calendar" tintColor={color} size={size} />
+            ) : (
+              <Feather name="calendar" size={size} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="history"
+        options={{
+          title: "Learned",
+          tabBarIcon: ({ color, size }) =>
+            Platform.OS === "ios" ? (
+              <SymbolView name="chart.bar.fill" tintColor={color} size={size} />
+            ) : (
+              <Feather name="bar-chart-2" size={size} color={color} />
+            ),
         }}
       />
     </Tabs>
