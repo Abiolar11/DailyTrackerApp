@@ -199,6 +199,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 Available hours: ${wakeTime} to ${sleepTime}.
 ${learnedContext}
 
+IMPORTANT — Religious prayers / Salah knowledge:
+When the user mentions "5 prayers", "five daily prayers", "salah", "salat", or any Islamic prayer names, these are the FIVE obligatory daily prayers. Each has a DIFFERENT time and must be scheduled as SEPARATE fixed-time tasks:
+1. Fajr — dawn prayer, typically around 05:00–05:30 (before sunrise). Duration: ~15 min.
+2. Dhuhr — midday prayer, typically around 12:30–13:00 (after solar noon). Duration: ~15 min.
+3. Asr — afternoon prayer, typically around 15:30–16:00. Duration: ~15 min.
+4. Maghrib — sunset prayer, typically around 18:00–18:30 (just after sunset). Duration: ~15 min.
+5. Isha — night prayer, typically around 20:00–20:30 (after twilight fades). Duration: ~15 min.
+
+Rules for prayers:
+- ALWAYS create 5 separate tasks, one per prayer, each with its own fixedStartTime
+- Use category "personal" and priority "high" (prayers are non-negotiable)
+- Set flexibility to "fixed" since each prayer has a specific time window
+- If the user provides specific prayer times or a city/location, adjust times accordingly
+- If the user simply says "pray all 5 prayers" without specifying times, use the default times above
+- The user might also mention "Sunnah" or "Tahajjud" — treat those as additional optional prayers
+
 Return ONLY valid JSON with this exact shape:
 {
   "tasks": [
@@ -209,7 +225,7 @@ Return ONLY valid JSON with this exact shape:
       "priority": "high|medium|low",
       "durationMinutes": number,
       "flexibility": "fixed|high|medium|low",
-      "fixedStartTime": "HH:MM (24h, only if user specified an exact time)",
+      "fixedStartTime": "HH:MM (24h, only if user specified an exact time OR if the task has a known standard time like prayers)",
       "earliestStart": "HH:MM (optional)",
       "latestEnd": "HH:MM (optional)",
       "notes": "optional notes"
@@ -219,7 +235,7 @@ Return ONLY valid JSON with this exact shape:
 
 Rules:
 - Infer duration from context (gym = 60min, quick coffee = 15min, deep work = 90-120min)
-- Set flexibility to "fixed" only when user specifies an exact time ("at 2pm", "3:30pm meeting")
+- Set flexibility to "fixed" when user specifies an exact time ("at 2pm", "3:30pm meeting") OR when the task has a known standard time (like daily prayers)
 - Set flexibility "low" for tasks with loose time windows, "high" for fully flexible tasks
 - Set priority based on urgency/importance signals in the prompt
 - Categories: work=professional tasks, health=exercise/wellness, personal=errands/chores, learning=studying, social=meetings/calls, rest=breaks/sleep, other=misc`;
