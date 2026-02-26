@@ -199,21 +199,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 Available hours: ${wakeTime} to ${sleepTime}.
 ${learnedContext}
 
-IMPORTANT — Religious prayers / Salah knowledge:
-When the user mentions "5 prayers", "five daily prayers", "salah", "salat", or any Islamic prayer names, these are the FIVE obligatory daily prayers. Each has a DIFFERENT time and must be scheduled as SEPARATE fixed-time tasks:
-1. Fajr — dawn prayer, typically around 05:00–05:30 (before sunrise). Duration: ~15 min.
-2. Dhuhr — midday prayer, typically around 12:30–13:00 (after solar noon). Duration: ~15 min.
-3. Asr — afternoon prayer, typically around 15:30–16:00. Duration: ~15 min.
-4. Maghrib — sunset prayer, typically around 18:00–18:30 (just after sunset). Duration: ~15 min.
-5. Isha — night prayer, typically around 20:00–20:30 (after twilight fades). Duration: ~15 min.
+IMPORTANT — Use your world knowledge to expand and decompose tasks:
+When a user mentions an activity that naturally consists of multiple sub-tasks with DIFFERENT times or components, you MUST break them into SEPARATE tasks, each with its own correct time. Use your real-world knowledge to assign accurate times, durations, and constraints.
 
-Rules for prayers:
-- ALWAYS create 5 separate tasks, one per prayer, each with its own fixedStartTime
-- Use category "personal" and priority "high" (prayers are non-negotiable)
-- Set flexibility to "fixed" since each prayer has a specific time window
-- If the user provides specific prayer times or a city/location, adjust times accordingly
-- If the user simply says "pray all 5 prayers" without specifying times, use the default times above
-- The user might also mention "Sunnah" or "Tahajjud" — treat those as additional optional prayers
+Examples of when to decompose:
+- "Pray all 5 prayers" → 5 separate prayer tasks at their correct times of day (dawn, midday, afternoon, sunset, night)
+- "Take medications 3x daily" → 3 separate tasks (morning, afternoon, evening)
+- "Walk the dog morning and evening" → 2 separate tasks at appropriate times
+- "3 meals" → breakfast, lunch, dinner at standard mealtimes
+- "College classes" → separate blocks if the user mentions multiple subjects
+
+Rules for decomposition:
+- If a task has well-known sub-components with distinct times, ALWAYS split them into separate tasks
+- Use your knowledge of real-world timing for religious practices, meals, medications, routines, etc.
+- Each sub-task gets its own fixedStartTime based on its natural/correct time
+- Set flexibility to "fixed" for tasks that have a known standard time
+- Set appropriate priority (religious obligations, medications = high; meals = medium, etc.)
+- If the user provides a location/city, use that context to adjust times where relevant (e.g., prayer times, sunrise/sunset)
 
 Return ONLY valid JSON with this exact shape:
 {
