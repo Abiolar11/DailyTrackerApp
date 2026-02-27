@@ -16,9 +16,9 @@ export interface ParsedTask {
   priority: Priority;
   durationMinutes: number;
   flexibility: Flexibility;
-  fixedStartTime?: string; // "HH:MM" 24h format
-  earliestStart?: string; // "HH:MM"
-  latestEnd?: string; // "HH:MM"
+  fixedStartTime?: string;
+  earliestStart?: string;
+  latestEnd?: string;
   notes?: string;
 }
 
@@ -28,35 +28,37 @@ export interface TimeBlock {
   title: string;
   category: Category;
   priority: Priority;
-  startMinutes: number; // minutes from midnight
+  startMinutes: number;
   endMinutes: number;
   durationMinutes: number;
   isLocked: boolean;
   isBuffer: boolean;
+  isCompleted: boolean;
   flexibility: Flexibility;
 }
 
 export interface Schedule {
   id: string;
-  date: string; // "YYYY-MM-DD"
+  date: string;
   prompt: string;
   blocks: TimeBlock[];
-  generatedAt: string; // ISO string
+  generatedAt: string;
   wakeMinutes: number;
   sleepMinutes: number;
 }
 
 export interface UserSettings {
-  wakeTime: string; // "HH:MM"
-  sleepTime: string; // "HH:MM"
+  wakeTime: string;
+  sleepTime: string;
   bufferMinutes: number;
   timezone: string;
+  notificationsEnabled: boolean;
 }
 
 export interface LearnedTask {
-  signature: string; // normalized task name
+  signature: string;
   typicalDurationMinutes: number;
-  preferredStartMinutes?: number; // preferred time of day
+  preferredStartMinutes?: number;
   sampleCount: number;
-  lastUsed: string; // ISO string
+  lastUsed: string;
 }

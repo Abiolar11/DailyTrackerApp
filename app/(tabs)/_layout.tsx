@@ -20,8 +20,8 @@ function NativeTabLayout() {
         <Label>Schedule</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="history">
-        <Icon sf={{ default: "chart.bar.fill", selected: "chart.bar.fill" }} />
-        <Label>Learned</Label>
+        <Icon sf={{ default: "clock.arrow.circlepath", selected: "clock.arrow.circlepath" }} />
+        <Label>History</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -86,12 +86,12 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: "Learned",
+          title: "History",
           tabBarIcon: ({ color, size }) =>
             Platform.OS === "ios" ? (
-              <SymbolView name="chart.bar.fill" tintColor={color} size={size} />
+              <SymbolView name="clock.arrow.circlepath" tintColor={color} size={size} />
             ) : (
-              <Feather name="bar-chart-2" size={size} color={color} />
+              <Feather name="clock" size={size} color={color} />
             ),
         }}
       />

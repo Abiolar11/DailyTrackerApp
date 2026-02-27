@@ -127,6 +127,7 @@ export default function TodayScreen() {
       const blocks: TimeBlock[] = data.blocks.map((b: TimeBlock) => ({
         ...b,
         isLocked: false,
+        isCompleted: false,
       }));
 
       const schedule: Schedule = {

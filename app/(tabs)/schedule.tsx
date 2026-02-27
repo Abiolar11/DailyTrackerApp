@@ -68,16 +68,19 @@ function BlockItem({
   wakeMinutes,
   containerWidth,
   onPress,
+  onToggleComplete,
 }: {
   block: TimeBlock;
   wakeMinutes: number;
   containerWidth: number;
   onPress: (block: TimeBlock) => void;
+  onToggleComplete: (blockId: string) => void;
 }) {
   const scale = useSharedValue(1);
   const top = (block.startMinutes - wakeMinutes) * MIN_PER_PX;
   const height = Math.max(block.durationMinutes * MIN_PER_PX, 28);
   const color = getCategoryColor(block.category as Category);
+  const completed = !!block.isCompleted;
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -91,6 +94,12 @@ function BlockItem({
     onPress(block);
   };
 
+  const handleComplete = (e: any) => {
+    e.stopPropagation();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onToggleComplete(block.id);
+  };
+
   return (
     <Animated.View
       style={[
@@ -101,16 +110,40 @@ function BlockItem({
           height,
           left: LEFT_GUTTER + 4,
           right: 8,
-          borderLeftColor: color,
-          backgroundColor: `${color}18`,
-          borderColor: block.isLocked ? color : `${color}50`,
+          borderLeftColor: completed ? Colors.theme.textMuted : color,
+          backgroundColor: completed ? `${Colors.theme.textMuted}10` : `${color}18`,
+          borderColor: completed
+            ? `${Colors.theme.textMuted}30`
+            : block.isLocked
+            ? color
+            : `${color}50`,
         },
       ]}
     >
       <Pressable onPress={handlePress} style={styles.blockInner}>
         <View style={styles.blockTop}>
+          <Pressable
+            onPress={handleComplete}
+            hitSlop={8}
+            testID={`check-${block.id}`}
+            style={[
+              styles.checkBtn,
+              {
+                borderColor: completed ? Colors.palette.green : `${color}60`,
+                backgroundColor: completed ? Colors.palette.green : "transparent",
+              },
+            ]}
+          >
+            {completed && <Feather name="check" size={10} color="#fff" />}
+          </Pressable>
           <Text
-            style={[styles.blockTitle, { color: Colors.theme.text }]}
+            style={[
+              styles.blockTitle,
+              {
+                color: completed ? Colors.theme.textMuted : Colors.theme.text,
+                textDecorationLine: completed ? "line-through" : "none",
+              },
+            ]}
             numberOfLines={height < 50 ? 1 : 2}
           >
             {block.title}
@@ -152,6 +185,7 @@ export default function ScheduleScreen() {
     currentSchedule,
     updateBlock,
     toggleLock,
+    toggleComplete,
     setCurrentSchedule,
     settings,
     learnedTasks,
@@ -181,12 +215,18 @@ export default function ScheduleScreen() {
     return markers;
   }, [wakeMinutes, sleepMinutes]);
 
-  const { busyMinutes, freeMinutes } = useMemo(() => {
-    const busy = blocks
-      .filter((b) => !b.isBuffer)
-      .reduce((acc, b) => acc + b.durationMinutes, 0);
+  const { busyMinutes, freeMinutes, completed, totalTasks } = useMemo(() => {
+    const taskBlocks = blocks.filter((b) => !b.isBuffer);
+    const busy = taskBlocks.reduce((acc, b) => acc + b.durationMinutes, 0);
     const total = sleepMinutes - wakeMinutes;
-    return { busyMinutes: busy, freeMinutes: Math.max(0, total - busy) };
+    const completed = taskBlocks.filter((b) => !!b.isCompleted).length;
+    const totalTasks = taskBlocks.length;
+    return {
+      busyMinutes: busy,
+      freeMinutes: Math.max(0, total - busy),
+      completed,
+      totalTasks,
+    };
   }, [blocks, wakeMinutes, sleepMinutes]);
 
   const openEdit = (block: TimeBlock) => {
@@ -328,6 +368,12 @@ export default function ScheduleScreen() {
       {/* Summary Bar */}
       <View style={styles.summaryBar}>
         <View style={styles.summaryItem}>
+          <Feather name="check-circle" size={12} color={Colors.palette.green} />
+          <Text style={styles.summaryLabel}>Done</Text>
+          <Text style={styles.summaryValue}>{completed}/{totalTasks}</Text>
+        </View>
+        <View style={styles.summaryDivider} />
+        <View style={styles.summaryItem}>
           <View style={[styles.summaryDot, { backgroundColor: Colors.palette.blue }]} />
           <Text style={styles.summaryLabel}>Busy</Text>
           <Text style={styles.summaryValue}>{formatDuration(busyMinutes)}</Text>
@@ -337,14 +383,6 @@ export default function ScheduleScreen() {
           <View style={[styles.summaryDot, { backgroundColor: Colors.palette.green }]} />
           <Text style={styles.summaryLabel}>Free</Text>
           <Text style={styles.summaryValue}>{formatDuration(freeMinutes)}</Text>
-        </View>
-        <View style={styles.summaryDivider} />
-        <View style={styles.summaryItem}>
-          <Feather name="lock" size={11} color={Colors.theme.textMuted} />
-          <Text style={styles.summaryLabel}>Locked</Text>
-          <Text style={styles.summaryValue}>
-            {blocks.filter((b) => b.isLocked).length}
-          </Text>
         </View>
       </View>
 
@@ -385,6 +423,7 @@ export default function ScheduleScreen() {
               wakeMinutes={wakeMinutes}
               containerWidth={containerWidth}
               onPress={openEdit}
+              onToggleComplete={toggleComplete}
             />
           ))}
         </View>
@@ -673,7 +712,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 4,
+    gap: 6,
+  },
+  checkBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 0,
   },
   blockTitle: {
     fontFamily: "DMSans_600SemiBold",
