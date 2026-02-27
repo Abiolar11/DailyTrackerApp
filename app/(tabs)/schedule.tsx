@@ -1,18 +1,20 @@
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
   Pressable,
   StyleSheet,
   Platform,
   Modal,
-  TextInput,
   Alert,
   ActivityIndicator,
   PanResponder,
   GestureResponderEvent,
   PanResponderGestureState,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -53,37 +55,198 @@ function minutesToTimeShort(minutes: number): string {
   return `${displayH}:${String(m).padStart(2, "0")} ${period}`;
 }
 
-function minutesToInputFormat(minutes: number): string {
-  const h = Math.floor(minutes / 60) % 24;
+function minutesToPicker(minutes: number): { hour: number; minute: number; period: "AM" | "PM" } {
+  const h24 = Math.floor(minutes / 60) % 24;
   const m = minutes % 60;
-  const period = h >= 12 ? "PM" : "AM";
-  const displayH = h % 12 === 0 ? 12 : h % 12;
-  return `${displayH}:${String(m).padStart(2, "0")} ${period}`;
+  const period: "AM" | "PM" = h24 >= 12 ? "PM" : "AM";
+  const hour = h24 % 12 === 0 ? 12 : h24 % 12;
+  return { hour, minute: m, period };
 }
 
-function parseTimeInput(str: string): number | null {
-  const cleaned = str.trim().toUpperCase().replace(/\s+/g, " ");
-  const full = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
-  if (full) {
-    let h = parseInt(full[1]);
-    const m = parseInt(full[2]);
-    const period = full[3];
-    if (h < 1 || h > 12 || m < 0 || m > 59) return null;
-    if (period === "AM" && h === 12) h = 0;
-    else if (period === "PM" && h !== 12) h += 12;
-    return h * 60 + m;
-  }
-  const short = cleaned.match(/^(\d{1,2})\s*(AM|PM)$/);
-  if (short) {
-    let h = parseInt(short[1]);
-    const period = short[2];
-    if (h < 1 || h > 12) return null;
-    if (period === "AM" && h === 12) h = 0;
-    else if (period === "PM" && h !== 12) h += 12;
-    return h * 60;
-  }
-  return null;
+function pickerToMinutes(hour: number, minute: number, period: "AM" | "PM"): number {
+  let h24 = hour;
+  if (period === "AM" && hour === 12) h24 = 0;
+  else if (period === "PM" && hour !== 12) h24 = hour + 12;
+  return h24 * 60 + minute;
 }
+
+const PICKER_HOURS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const PICKER_MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const PICKER_PERIODS: ("AM" | "PM")[] = ["AM", "PM"];
+const PICKER_ITEM_H = 44;
+
+function PickerColumn<T extends string | number>({
+  data,
+  selected,
+  onSelect,
+  format,
+}: {
+  data: T[];
+  selected: T;
+  onSelect: (val: T) => void;
+  format?: (val: T) => string;
+}) {
+  const scrollRef = useRef<FlatList<T>>(null);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    if (scrollRef.current && !mounted.current) {
+      mounted.current = true;
+      const idx = data.indexOf(selected);
+      if (idx >= 0) {
+        setTimeout(() => {
+          scrollRef.current?.scrollToOffset({ offset: idx * PICKER_ITEM_H, animated: false });
+        }, 50);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mounted.current && scrollRef.current) {
+      const idx = data.indexOf(selected);
+      if (idx >= 0) {
+        scrollRef.current.scrollToOffset({ offset: idx * PICKER_ITEM_H, animated: true });
+      }
+    }
+  }, [selected]);
+
+  const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const idx = Math.round(y / PICKER_ITEM_H);
+    const clamped = Math.max(0, Math.min(idx, data.length - 1));
+    if (data[clamped] !== selected) {
+      Haptics.selectionAsync();
+      onSelect(data[clamped]);
+    }
+  };
+
+  return (
+    <View style={pickerStyles.column}>
+      <View style={pickerStyles.highlight} pointerEvents="none" />
+      <FlatList
+        ref={scrollRef}
+        data={data}
+        keyExtractor={(item) => String(item)}
+        snapToInterval={PICKER_ITEM_H}
+        decelerationRate="fast"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingVertical: PICKER_ITEM_H }}
+        getItemLayout={(_, index) => ({ length: PICKER_ITEM_H, offset: PICKER_ITEM_H * index, index })}
+        onMomentumScrollEnd={onMomentumEnd}
+        onScrollEndDrag={onMomentumEnd}
+        renderItem={({ item }) => {
+          const isSelected = item === selected;
+          return (
+            <Pressable
+              onPress={() => {
+                Haptics.selectionAsync();
+                onSelect(item);
+              }}
+              style={pickerStyles.item}
+            >
+              <Text style={[pickerStyles.itemText, isSelected && pickerStyles.itemTextSelected]}>
+                {format ? format(item) : String(item)}
+              </Text>
+            </Pressable>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+function TimeScrollPicker({
+  minutes,
+  onChange,
+  label,
+}: {
+  minutes: number;
+  onChange: (m: number) => void;
+  label: string;
+}) {
+  const { hour, minute, period } = minutesToPicker(minutes);
+
+  const setHour = (h: number) => onChange(pickerToMinutes(h, minute, period));
+  const setMinute = (m: number) => onChange(pickerToMinutes(hour, m, period));
+  const setPeriod = (p: "AM" | "PM") => onChange(pickerToMinutes(hour, minute, p));
+
+  return (
+    <View style={pickerStyles.wrapper}>
+      <Text style={pickerStyles.label}>{label}</Text>
+      <View style={pickerStyles.row}>
+        <PickerColumn data={PICKER_HOURS} selected={hour} onSelect={setHour} />
+        <Text style={pickerStyles.separator}>:</Text>
+        <PickerColumn
+          data={PICKER_MINUTES}
+          selected={minute}
+          onSelect={setMinute}
+          format={(v) => String(v).padStart(2, "0")}
+        />
+        <PickerColumn data={PICKER_PERIODS} selected={period} onSelect={setPeriod} />
+      </View>
+    </View>
+  );
+}
+
+const pickerStyles = StyleSheet.create({
+  wrapper: {
+    gap: 8,
+  },
+  label: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 12,
+    color: Colors.theme.textSub,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.theme.bg2,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.theme.border,
+    paddingHorizontal: 8,
+    height: PICKER_ITEM_H * 3,
+    overflow: "hidden",
+  },
+  column: {
+    flex: 1,
+    height: PICKER_ITEM_H * 3,
+    position: "relative",
+  },
+  highlight: {
+    position: "absolute",
+    top: PICKER_ITEM_H,
+    left: 4,
+    right: 4,
+    height: PICKER_ITEM_H,
+    backgroundColor: `${Colors.palette.blue}18`,
+    borderRadius: 10,
+    zIndex: 1,
+  },
+  item: {
+    height: PICKER_ITEM_H,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  itemText: {
+    fontFamily: "DMMono_400Regular",
+    fontSize: 20,
+    color: Colors.theme.textMuted,
+  },
+  itemTextSelected: {
+    color: Colors.theme.text,
+    fontFamily: "DMMono_500Medium",
+  },
+  separator: {
+    fontFamily: "DMMono_500Medium",
+    fontSize: 22,
+    color: Colors.theme.textSub,
+    marginHorizontal: 2,
+  },
+});
 
 function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);
@@ -323,9 +486,8 @@ export default function ScheduleScreen() {
   } = useSchedule();
 
   const [editingBlock, setEditingBlock] = useState<TimeBlock | null>(null);
-  const [editDuration, setEditDuration] = useState("");
-  const [editStartTime, setEditStartTime] = useState("");
-  const [editEndTime, setEditEndTime] = useState("");
+  const [editStartMin, setEditStartMin] = useState(0);
+  const [editEndMin, setEditEndMin] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [containerWidth, setContainerWidth] = useState(350);
   const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
@@ -399,44 +561,38 @@ export default function ScheduleScreen() {
   const openEdit = (block: TimeBlock) => {
     if (draggingBlockId) return;
     setEditingBlock(block);
-    setEditDuration(String(block.durationMinutes));
-    setEditStartTime(minutesToInputFormat(block.startMinutes));
-    setEditEndTime(minutesToInputFormat(block.endMinutes));
+    const snapTo5 = (m: number) => Math.round(m / 5) * 5;
+    setEditStartMin(snapTo5(block.startMinutes));
+    setEditEndMin(snapTo5(block.endMinutes));
   };
+
+  const editDuration = editEndMin > editStartMin ? editEndMin - editStartMin : 0;
 
   const saveEdit = () => {
     if (!editingBlock) return;
 
-    const newStart = parseTimeInput(editStartTime);
-    const newEnd = parseTimeInput(editEndTime);
-
-    if (newStart === null || newEnd === null) {
-      Alert.alert("Invalid time", "Use format like 9:00 AM or 1:30 PM");
-      return;
-    }
-
-    if (newEnd <= newStart) {
+    if (editEndMin <= editStartMin) {
       Alert.alert("Invalid time", "End time must be after start time");
       return;
     }
 
-    if (newStart < wakeMinutes || newEnd > sleepMinutes) {
+    if (editStartMin < wakeMinutes || editEndMin > sleepMinutes) {
       Alert.alert("Out of range", `Times must be between ${minutesToTimeShort(wakeMinutes)} and ${minutesToTimeShort(sleepMinutes)}`);
       return;
     }
 
-    const dur = newEnd - newStart;
+    const dur = editEndMin - editStartMin;
     if (dur < 5) {
       Alert.alert("Too short", "Task must be at least 5 minutes");
       return;
     }
 
     updateBlock(editingBlock.id, {
-      startMinutes: newStart,
-      endMinutes: newEnd,
+      startMinutes: editStartMin,
+      endMinutes: editEndMin,
       durationMinutes: dur,
     });
-    recordTaskCompletion(editingBlock.title, dur, newStart);
+    recordTaskCompletion(editingBlock.title, dur, editStartMin);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setEditingBlock(null);
   };
@@ -717,59 +873,24 @@ export default function ScheduleScreen() {
                   </View>
                 </View>
 
-                <View style={styles.editSection}>
-                  <Text style={styles.editLabel}>Start Time</Text>
-                  <TextInput
-                    style={styles.editInput}
-                    value={editStartTime}
-                    onChangeText={(text) => {
-                      setEditStartTime(text);
-                      const s = parseTimeInput(text);
-                      const e = parseTimeInput(editEndTime);
-                      if (s !== null && e !== null && e > s) {
-                        setEditDuration(String(e - s));
-                      }
-                    }}
-                    placeholder="e.g. 9:00 AM"
-                    placeholderTextColor={Colors.theme.textMuted}
-                    autoCapitalize="characters"
-                    selectTextOnFocus
-                  />
-                </View>
+                <TimeScrollPicker
+                  minutes={editStartMin}
+                  onChange={setEditStartMin}
+                  label="Start Time"
+                />
 
-                <View style={styles.editSection}>
-                  <Text style={styles.editLabel}>End Time</Text>
-                  <TextInput
-                    style={styles.editInput}
-                    value={editEndTime}
-                    onChangeText={(text) => {
-                      setEditEndTime(text);
-                      const s = parseTimeInput(editStartTime);
-                      const e = parseTimeInput(text);
-                      if (s !== null && e !== null && e > s) {
-                        setEditDuration(String(e - s));
-                      }
-                    }}
-                    placeholder="e.g. 10:30 AM"
-                    placeholderTextColor={Colors.theme.textMuted}
-                    autoCapitalize="characters"
-                    selectTextOnFocus
-                  />
-                </View>
+                <TimeScrollPicker
+                  minutes={editEndMin}
+                  onChange={setEditEndMin}
+                  label="End Time"
+                />
 
-                {(() => {
-                  const s = parseTimeInput(editStartTime);
-                  const e = parseTimeInput(editEndTime);
-                  const dur = s !== null && e !== null && e > s ? e - s : null;
-                  return (
-                    <View style={styles.durationHint}>
-                      <Feather name="clock" size={13} color={dur !== null ? Colors.palette.blue : Colors.theme.textMuted} />
-                      <Text style={[styles.durationHintText, { color: dur !== null ? Colors.theme.textSub : Colors.theme.textMuted }]}>
-                        {dur !== null ? `Duration: ${formatDuration(dur)}` : "Set valid start & end times"}
-                      </Text>
-                    </View>
-                  );
-                })()}
+                <View style={styles.durationHint}>
+                  <Feather name="clock" size={13} color={editDuration > 0 ? Colors.palette.blue : Colors.theme.textMuted} />
+                  <Text style={[styles.durationHintText, { color: editDuration > 0 ? Colors.theme.textSub : Colors.theme.textMuted }]}>
+                    {editDuration > 0 ? `Duration: ${formatDuration(editDuration)}` : "End must be after start"}
+                  </Text>
+                </View>
 
                 <View style={styles.modalActions}>
                   <Pressable
@@ -1082,26 +1203,6 @@ const styles = StyleSheet.create({
   priorityText: {
     fontFamily: "DMSans_500Medium",
     fontSize: 11,
-  },
-  editSection: {
-    gap: 8,
-  },
-  editLabel: {
-    fontFamily: "DMSans_500Medium",
-    fontSize: 12,
-    color: Colors.theme.textSub,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  editInput: {
-    backgroundColor: Colors.theme.bg2,
-    borderRadius: 12,
-    padding: 14,
-    color: Colors.theme.text,
-    fontFamily: "DMMono_400Regular",
-    fontSize: 18,
-    borderWidth: 1,
-    borderColor: Colors.theme.border,
   },
   durationHint: {
     flexDirection: "row",
