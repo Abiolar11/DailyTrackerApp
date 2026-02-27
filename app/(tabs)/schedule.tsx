@@ -53,6 +53,38 @@ function minutesToTimeShort(minutes: number): string {
   return `${displayH}:${String(m).padStart(2, "0")} ${period}`;
 }
 
+function minutesToInputFormat(minutes: number): string {
+  const h = Math.floor(minutes / 60) % 24;
+  const m = minutes % 60;
+  const period = h >= 12 ? "PM" : "AM";
+  const displayH = h % 12 === 0 ? 12 : h % 12;
+  return `${displayH}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+function parseTimeInput(str: string): number | null {
+  const cleaned = str.trim().toUpperCase().replace(/\s+/g, " ");
+  const full = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+  if (full) {
+    let h = parseInt(full[1]);
+    const m = parseInt(full[2]);
+    const period = full[3];
+    if (h < 1 || h > 12 || m < 0 || m > 59) return null;
+    if (period === "AM" && h === 12) h = 0;
+    else if (period === "PM" && h !== 12) h += 12;
+    return h * 60 + m;
+  }
+  const short = cleaned.match(/^(\d{1,2})\s*(AM|PM)$/);
+  if (short) {
+    let h = parseInt(short[1]);
+    const period = short[2];
+    if (h < 1 || h > 12) return null;
+    if (period === "AM" && h === 12) h = 0;
+    else if (period === "PM" && h !== 12) h += 12;
+    return h * 60;
+  }
+  return null;
+}
+
 function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
@@ -292,6 +324,8 @@ export default function ScheduleScreen() {
 
   const [editingBlock, setEditingBlock] = useState<TimeBlock | null>(null);
   const [editDuration, setEditDuration] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [containerWidth, setContainerWidth] = useState(350);
   const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
@@ -366,20 +400,43 @@ export default function ScheduleScreen() {
     if (draggingBlockId) return;
     setEditingBlock(block);
     setEditDuration(String(block.durationMinutes));
+    setEditStartTime(minutesToInputFormat(block.startMinutes));
+    setEditEndTime(minutesToInputFormat(block.endMinutes));
   };
 
   const saveEdit = () => {
     if (!editingBlock) return;
-    const dur = parseInt(editDuration);
-    if (isNaN(dur) || dur < 5) {
-      Alert.alert("Invalid duration", "Duration must be at least 5 minutes");
+
+    const newStart = parseTimeInput(editStartTime);
+    const newEnd = parseTimeInput(editEndTime);
+
+    if (newStart === null || newEnd === null) {
+      Alert.alert("Invalid time", "Use format like 9:00 AM or 1:30 PM");
       return;
     }
+
+    if (newEnd <= newStart) {
+      Alert.alert("Invalid time", "End time must be after start time");
+      return;
+    }
+
+    if (newStart < wakeMinutes || newEnd > sleepMinutes) {
+      Alert.alert("Out of range", `Times must be between ${minutesToTimeShort(wakeMinutes)} and ${minutesToTimeShort(sleepMinutes)}`);
+      return;
+    }
+
+    const dur = newEnd - newStart;
+    if (dur < 5) {
+      Alert.alert("Too short", "Task must be at least 5 minutes");
+      return;
+    }
+
     updateBlock(editingBlock.id, {
+      startMinutes: newStart,
+      endMinutes: newEnd,
       durationMinutes: dur,
-      endMinutes: editingBlock.startMinutes + dur,
     });
-    recordTaskCompletion(editingBlock.title, dur, editingBlock.startMinutes);
+    recordTaskCompletion(editingBlock.title, dur, newStart);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setEditingBlock(null);
   };
@@ -626,13 +683,6 @@ export default function ScheduleScreen() {
 
                 <View style={styles.modalInfo}>
                   <View style={styles.infoRow}>
-                    <Feather name="clock" size={14} color={Colors.theme.textMuted} />
-                    <Text style={styles.infoText}>
-                      {minutesToTime(editingBlock.startMinutes)} –{" "}
-                      {minutesToTime(editingBlock.endMinutes)}
-                    </Text>
-                  </View>
-                  <View style={styles.infoRow}>
                     <Feather name="tag" size={14} color={Colors.theme.textMuted} />
                     <Text style={styles.infoText}>{editingBlock.category}</Text>
                     <View
@@ -668,15 +718,58 @@ export default function ScheduleScreen() {
                 </View>
 
                 <View style={styles.editSection}>
-                  <Text style={styles.editLabel}>Duration (minutes)</Text>
+                  <Text style={styles.editLabel}>Start Time</Text>
                   <TextInput
                     style={styles.editInput}
-                    value={editDuration}
-                    onChangeText={setEditDuration}
-                    keyboardType="number-pad"
+                    value={editStartTime}
+                    onChangeText={(text) => {
+                      setEditStartTime(text);
+                      const s = parseTimeInput(text);
+                      const e = parseTimeInput(editEndTime);
+                      if (s !== null && e !== null && e > s) {
+                        setEditDuration(String(e - s));
+                      }
+                    }}
+                    placeholder="e.g. 9:00 AM"
+                    placeholderTextColor={Colors.theme.textMuted}
+                    autoCapitalize="characters"
                     selectTextOnFocus
                   />
                 </View>
+
+                <View style={styles.editSection}>
+                  <Text style={styles.editLabel}>End Time</Text>
+                  <TextInput
+                    style={styles.editInput}
+                    value={editEndTime}
+                    onChangeText={(text) => {
+                      setEditEndTime(text);
+                      const s = parseTimeInput(editStartTime);
+                      const e = parseTimeInput(text);
+                      if (s !== null && e !== null && e > s) {
+                        setEditDuration(String(e - s));
+                      }
+                    }}
+                    placeholder="e.g. 10:30 AM"
+                    placeholderTextColor={Colors.theme.textMuted}
+                    autoCapitalize="characters"
+                    selectTextOnFocus
+                  />
+                </View>
+
+                {(() => {
+                  const s = parseTimeInput(editStartTime);
+                  const e = parseTimeInput(editEndTime);
+                  const dur = s !== null && e !== null && e > s ? e - s : null;
+                  return (
+                    <View style={styles.durationHint}>
+                      <Feather name="clock" size={13} color={dur !== null ? Colors.palette.blue : Colors.theme.textMuted} />
+                      <Text style={[styles.durationHintText, { color: dur !== null ? Colors.theme.textSub : Colors.theme.textMuted }]}>
+                        {dur !== null ? `Duration: ${formatDuration(dur)}` : "Set valid start & end times"}
+                      </Text>
+                    </View>
+                  );
+                })()}
 
                 <View style={styles.modalActions}>
                   <Pressable
@@ -1006,9 +1099,19 @@ const styles = StyleSheet.create({
     padding: 14,
     color: Colors.theme.text,
     fontFamily: "DMMono_400Regular",
-    fontSize: 20,
+    fontSize: 18,
     borderWidth: 1,
     borderColor: Colors.theme.border,
+  },
+  durationHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 4,
+  },
+  durationHintText: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 13,
   },
   modalActions: {
     flexDirection: "row",
