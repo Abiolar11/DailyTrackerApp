@@ -60,7 +60,6 @@ export default function TodayScreen() {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [lastResult, setLastResult] = useState<{ busyMinutes: number; freeMinutes: number } | null>(null);
   const [exampleIndex, setExampleIndex] = useState(0);
 
   const settingsHeight = useSharedValue(0);
@@ -127,13 +126,6 @@ export default function TodayScreen() {
         isLocked: false,
       }));
 
-      const totalMinutes =
-        timeToMinutes(settings.sleepTime) - timeToMinutes(settings.wakeTime);
-      const busyMinutes = blocks
-        .filter((b) => !b.isBuffer)
-        .reduce((acc, b) => acc + b.durationMinutes, 0);
-      const freeMinutes = Math.max(0, totalMinutes - busyMinutes);
-
       const schedule: Schedule = {
         id: Crypto.randomUUID(),
         date: new Date().toISOString().split("T")[0],
@@ -145,8 +137,8 @@ export default function TodayScreen() {
       };
 
       setCurrentSchedule(schedule);
-      setLastResult({ busyMinutes, freeMinutes });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.push("/(tabs)/schedule");
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Could not generate schedule. Please try again.");
@@ -330,45 +322,6 @@ export default function TodayScreen() {
             </Pressable>
           </Animated.View>
 
-          {/* Result Card */}
-          {lastResult && (
-            <View style={styles.resultCard}>
-              <View style={styles.resultRow}>
-                <View style={styles.resultStat}>
-                  <View
-                    style={[styles.statDot, { backgroundColor: Colors.palette.blue }]}
-                  />
-                  <Text style={styles.statLabel}>Busy</Text>
-                  <Text style={styles.statValue}>
-                    {formatMinutes(lastResult.busyMinutes)}
-                  </Text>
-                </View>
-                <View style={styles.resultDivider} />
-                <View style={styles.resultStat}>
-                  <View
-                    style={[styles.statDot, { backgroundColor: Colors.palette.green }]}
-                  />
-                  <Text style={styles.statLabel}>Free</Text>
-                  <Text style={styles.statValue}>
-                    {formatMinutes(lastResult.freeMinutes)}
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push("/(tabs)/schedule");
-                }}
-                style={({ pressed }) => [
-                  styles.viewScheduleBtn,
-                  { opacity: pressed ? 0.8 : 1 },
-                ]}
-              >
-                <Text style={styles.viewScheduleText}>View Schedule</Text>
-                <Feather name="arrow-right" size={16} color={Colors.palette.blue} />
-              </Pressable>
-            </View>
-          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </LinearGradient>
@@ -530,57 +483,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#fff",
     letterSpacing: 0.2,
-  },
-  resultCard: {
-    backgroundColor: Colors.theme.bg1,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.theme.border,
-    overflow: "hidden",
-  },
-  resultRow: {
-    flexDirection: "row",
-    padding: 16,
-  },
-  resultStat: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  statDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statLabel: {
-    fontFamily: "DMSans_400Regular",
-    fontSize: 13,
-    color: Colors.theme.textSub,
-  },
-  statValue: {
-    fontFamily: "DMSans_700Bold",
-    fontSize: 18,
-    color: Colors.theme.text,
-    marginLeft: "auto",
-  },
-  resultDivider: {
-    width: 1,
-    backgroundColor: Colors.theme.border,
-    marginHorizontal: 8,
-  },
-  viewScheduleBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: Colors.theme.border,
-    paddingVertical: 14,
-  },
-  viewScheduleText: {
-    fontFamily: "DMSans_600SemiBold",
-    fontSize: 15,
-    color: Colors.palette.blue,
   },
 });
