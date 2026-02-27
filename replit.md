@@ -29,7 +29,9 @@ A mobile Expo React Native app that converts natural language daily to-do prompt
 - Task completion with checkboxes (auto-learns from completions)
 - Drag-and-drop to reschedule: long-press a block then drag to move it to a new time (snaps to 5-min intervals)
 - Lock individual blocks, regenerate schedule preserving locked blocks
-- Tap any block to open edit modal (change duration, lock/unlock)
+- Tap any block to open edit modal (change time via spinner pickers, lock/unlock, delete)
+- Add Task: FAB (+) button on schedule screen to manually add tasks with title, category, priority, and time
+- Remove Task: trash icon in edit modal to delete a task from the schedule
 - Learning engine: exponential moving average (α=0.3) for duration and preferred time
 - Schedule history with completion progress tracking
 - Local push notifications (15-min before each task)

@@ -199,6 +199,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 Available hours: ${wakeTime} to ${sleepTime}.
 ${learnedContext}
 
+CRITICAL RULE — CAPTURE EVERY TASK:
+You MUST include EVERY single activity the user mentions. Do NOT skip, merge, or omit any task.
+- If the user lists 5 things, you MUST return at least 5 tasks
+- If the user says "gym, work, lunch, meeting, study", ALL 5 must appear as separate tasks
+- When in doubt, include the task rather than skip it
+- Re-read the user's prompt before returning to verify every mentioned activity has a corresponding task
+
 IMPORTANT — Use your world knowledge to expand and decompose tasks:
 When a user mentions an activity that naturally consists of multiple sub-tasks with DIFFERENT times or components, you MUST break them into SEPARATE tasks, each with its own correct time. Use your real-world knowledge to assign accurate times, durations, and constraints.
 
@@ -240,7 +247,8 @@ Rules:
 - Set flexibility to "fixed" when user specifies an exact time ("at 2pm", "3:30pm meeting") OR when the task has a known standard time (like daily prayers)
 - Set flexibility "low" for tasks with loose time windows, "high" for fully flexible tasks
 - Set priority based on urgency/importance signals in the prompt
-- Categories: work=professional tasks, health=exercise/wellness, personal=errands/chores, learning=studying, social=meetings/calls, rest=breaks/sleep, other=misc`;
+- Categories: work=professional tasks, health=exercise/wellness, personal=errands/chores, learning=studying, social=meetings/calls, rest=breaks/sleep, other=misc
+- FINAL CHECK: Before returning, count the tasks in your response and verify it matches or exceeds the number of distinct activities in the user's prompt`;
 
       const response = await openai.chat.completions.create({
         model: "gpt-5.2",

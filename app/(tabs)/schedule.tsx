@@ -3,6 +3,7 @@ import {
   View,
   Text,
   ScrollView,
+  TextInput,
   Pressable,
   StyleSheet,
   Platform,
@@ -23,7 +24,7 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import { useSchedule } from "@/context/ScheduleContext";
-import { TimeBlock, Category } from "@/types/schedule";
+import { TimeBlock, Category, Priority } from "@/types/schedule";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
 
@@ -439,6 +440,8 @@ export default function ScheduleScreen() {
     toggleLock,
     toggleComplete,
     setCurrentSchedule,
+    addBlock,
+    removeBlock,
     settings,
     learnedTasks,
     recordTaskCompletion,
@@ -448,6 +451,12 @@ export default function ScheduleScreen() {
   const [editStartMin, setEditStartMin] = useState(0);
   const [editEndMin, setEditEndMin] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addTitle, setAddTitle] = useState("");
+  const [addCategory, setAddCategory] = useState<Category>("other");
+  const [addPriority, setAddPriority] = useState<Priority>("medium");
+  const [addStartMin, setAddStartMin] = useState(540);
+  const [addEndMin, setAddEndMin] = useState(600);
   const [containerWidth, setContainerWidth] = useState(350);
   const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
   const [dragDy, setDragDy] = useState(0);
@@ -554,6 +563,69 @@ export default function ScheduleScreen() {
     recordTaskCompletion(editingBlock.title, dur, editStartMin);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setEditingBlock(null);
+  };
+
+  const openAddModal = () => {
+    const now = new Date();
+    const currentMin = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 5) * 5;
+    const startMin = Math.max(wakeMinutes, Math.min(currentMin, sleepMinutes - 30));
+    setAddTitle("");
+    setAddCategory("other");
+    setAddPriority("medium");
+    setAddStartMin(startMin);
+    setAddEndMin(Math.min(startMin + 60, sleepMinutes));
+    setShowAddModal(true);
+  };
+
+  const saveNewTask = () => {
+    const title = addTitle.trim();
+    if (!title) {
+      Alert.alert("Missing title", "Please enter a task name");
+      return;
+    }
+    if (addEndMin <= addStartMin) {
+      Alert.alert("Invalid time", "End time must be after start time");
+      return;
+    }
+    if (addStartMin < wakeMinutes || addEndMin > sleepMinutes) {
+      Alert.alert("Out of range", `Times must be between ${minutesToTimeShort(wakeMinutes)} and ${minutesToTimeShort(sleepMinutes)}`);
+      return;
+    }
+    const dur = addEndMin - addStartMin;
+    const id = `block_manual_${generateId()}`;
+    const newBlock: TimeBlock = {
+      id,
+      taskId: id,
+      title,
+      category: addCategory,
+      priority: addPriority,
+      startMinutes: addStartMin,
+      endMinutes: addEndMin,
+      durationMinutes: dur,
+      isLocked: false,
+      isBuffer: false,
+      isCompleted: false,
+      flexibility: "high",
+    };
+    addBlock(newBlock);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setShowAddModal(false);
+  };
+
+  const deleteEditingBlock = () => {
+    if (!editingBlock) return;
+    Alert.alert("Remove Task", `Remove "${editingBlock.title}" from your schedule?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () => {
+          removeBlock(editingBlock.id);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          setEditingBlock(null);
+        },
+      },
+    ]);
   };
 
   const handleRegenerate = useCallback(async () => {
@@ -853,6 +925,15 @@ export default function ScheduleScreen() {
 
                 <View style={styles.modalActions}>
                   <Pressable
+                    onPress={deleteEditingBlock}
+                    style={({ pressed }) => [
+                      styles.deleteBtn,
+                      { opacity: pressed ? 0.7 : 1 },
+                    ]}
+                  >
+                    <Feather name="trash-2" size={18} color={Colors.palette.red} />
+                  </Pressable>
+                  <Pressable
                     onPress={() => setEditingBlock(null)}
                     style={({ pressed }) => [
                       styles.actionBtn,
@@ -879,6 +960,141 @@ export default function ScheduleScreen() {
                 </View>
               </>
             )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Add Task FAB */}
+      <Pressable
+        onPress={openAddModal}
+        style={({ pressed }) => [
+          styles.fab,
+          { bottom: (Platform.OS === "web" ? 90 : insets.bottom + 16), opacity: pressed ? 0.8 : 1 },
+        ]}
+      >
+        <LinearGradient
+          colors={[Colors.palette.blue, Colors.palette.blueDim]}
+          style={styles.fabGradient}
+        >
+          <Feather name="plus" size={24} color="#fff" />
+        </LinearGradient>
+      </Pressable>
+
+      {/* Add Task Modal */}
+      <Modal
+        visible={showAddModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAddModal(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setShowAddModal(false)}
+        >
+          <Pressable
+            style={styles.modalSheet}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Feather name="plus-circle" size={18} color={Colors.palette.blue} />
+              <Text style={styles.modalTitle}>Add Task</Text>
+            </View>
+
+            <View style={{ gap: 6 }}>
+              <Text style={styles.addLabel}>Task Name</Text>
+              <TextInput
+                style={styles.addInput}
+                value={addTitle}
+                onChangeText={setAddTitle}
+                placeholder="What do you need to do?"
+                placeholderTextColor={Colors.theme.textMuted}
+                autoFocus
+              />
+            </View>
+
+            <View style={{ gap: 6 }}>
+              <Text style={styles.addLabel}>Category</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -4 }}>
+                <View style={styles.chipRow}>
+                  {(["work", "health", "personal", "learning", "social", "rest", "other"] as Category[]).map((cat) => (
+                    <Pressable
+                      key={cat}
+                      onPress={() => { setAddCategory(cat); Haptics.selectionAsync(); }}
+                      style={[
+                        styles.chip,
+                        addCategory === cat && { backgroundColor: getCategoryColor(cat), borderColor: getCategoryColor(cat) },
+                      ]}
+                    >
+                      <Text style={[styles.chipText, addCategory === cat && { color: "#fff" }]}>{cat}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+
+            <View style={{ gap: 6 }}>
+              <Text style={styles.addLabel}>Priority</Text>
+              <View style={styles.chipRow}>
+                {(["low", "medium", "high"] as Priority[]).map((p) => {
+                  const pColor = p === "high" ? Colors.palette.red : p === "medium" ? Colors.palette.amber : Colors.theme.textMuted;
+                  return (
+                    <Pressable
+                      key={p}
+                      onPress={() => { setAddPriority(p); Haptics.selectionAsync(); }}
+                      style={[styles.chip, addPriority === p && { backgroundColor: pColor, borderColor: pColor }]}
+                    >
+                      <Text style={[styles.chipText, addPriority === p && { color: "#fff" }]}>{p}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <TimeSpinnerPicker
+              minutes={addStartMin}
+              onChange={setAddStartMin}
+              label="Start Time"
+            />
+            <TimeSpinnerPicker
+              minutes={addEndMin}
+              onChange={setAddEndMin}
+              label="End Time"
+            />
+
+            <View style={styles.durationHint}>
+              <Feather name="clock" size={13} color={addEndMin > addStartMin ? Colors.palette.blue : Colors.theme.textMuted} />
+              <Text style={[styles.durationHintText, { color: addEndMin > addStartMin ? Colors.theme.textSub : Colors.theme.textMuted }]}>
+                {addEndMin > addStartMin ? `Duration: ${formatDuration(addEndMin - addStartMin)}` : "End must be after start"}
+              </Text>
+            </View>
+
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setShowAddModal(false)}
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  styles.cancelBtn,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={saveNewTask}
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <LinearGradient
+                  colors={[Colors.palette.blue, Colors.palette.blueDim]}
+                  style={styles.saveGradient}
+                >
+                  <Text style={styles.saveBtnText}>Add</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1202,5 +1418,69 @@ const styles = StyleSheet.create({
     fontFamily: "DMSans_700Bold",
     fontSize: 15,
     color: "#fff",
+  },
+  deleteBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: `${Colors.palette.red}15`,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fab: {
+    position: "absolute",
+    right: 20,
+    zIndex: 50,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    overflow: "hidden",
+    ...(Platform.OS === "web"
+      ? { boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }
+      : { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 }),
+  },
+  fabGradient: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addLabel: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 12,
+    color: Colors.theme.textSub,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  addInput: {
+    backgroundColor: Colors.theme.bg2,
+    borderRadius: 12,
+    padding: 14,
+    color: Colors.theme.text,
+    fontFamily: "DMSans_500Medium",
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: Colors.theme.border,
+  },
+  chipRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 4,
+    flexWrap: "wrap",
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.theme.border,
+    backgroundColor: Colors.theme.bg2,
+  },
+  chipText: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 13,
+    color: Colors.theme.textSub,
+    textTransform: "capitalize",
   },
 });

@@ -34,6 +34,8 @@ interface ScheduleContextValue {
   currentSchedule: Schedule | null;
   setCurrentSchedule: (s: Schedule | null) => void;
   updateBlock: (blockId: string, updates: Partial<TimeBlock>) => void;
+  addBlock: (block: TimeBlock) => void;
+  removeBlock: (blockId: string) => void;
   toggleLock: (blockId: string) => void;
   toggleComplete: (blockId: string) => void;
   learnedTasks: Record<string, LearnedTask>;
@@ -123,6 +125,35 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const next = {
         ...prev,
         blocks: prev.blocks.map((b) => (b.id === blockId ? { ...b, ...updates } : b)),
+      };
+      persistCurrentSchedule(next);
+      return next;
+    });
+  }, [persistCurrentSchedule]);
+
+  const addBlock = useCallback((block: TimeBlock) => {
+    setCurrentScheduleState((prev) => {
+      if (!prev) return prev;
+      const next = {
+        ...prev,
+        blocks: [...prev.blocks, block].sort((a, b) => a.startMinutes - b.startMinutes),
+      };
+      persistCurrentSchedule(next);
+      if (settings.notificationsEnabled) {
+        requestNotificationPermission().then((granted) => {
+          if (granted) scheduleBlockReminders(next.blocks);
+        });
+      }
+      return next;
+    });
+  }, [persistCurrentSchedule, settings.notificationsEnabled]);
+
+  const removeBlock = useCallback((blockId: string) => {
+    setCurrentScheduleState((prev) => {
+      if (!prev) return prev;
+      const next = {
+        ...prev,
+        blocks: prev.blocks.filter((b) => b.id !== blockId),
       };
       persistCurrentSchedule(next);
       return next;
@@ -227,6 +258,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       currentSchedule,
       setCurrentSchedule,
       updateBlock,
+      addBlock,
+      removeBlock,
       toggleLock,
       toggleComplete,
       learnedTasks,
@@ -243,6 +276,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       currentSchedule,
       setCurrentSchedule,
       updateBlock,
+      addBlock,
+      removeBlock,
       toggleLock,
       toggleComplete,
       learnedTasks,
