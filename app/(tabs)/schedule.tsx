@@ -1,9 +1,8 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
   ScrollView,
-  FlatList,
   Pressable,
   StyleSheet,
   Platform,
@@ -13,8 +12,6 @@ import {
   PanResponder,
   GestureResponderEvent,
   PanResponderGestureState,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -72,10 +69,8 @@ function pickerToMinutes(hour: number, minute: number, period: "AM" | "PM"): num
 
 const PICKER_HOURS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const PICKER_MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
-const PICKER_PERIODS: ("AM" | "PM")[] = ["AM", "PM"];
-const PICKER_ITEM_H = 44;
 
-function PickerColumn<T extends string | number>({
+function SpinnerSegment<T extends string | number>({
   data,
   selected,
   onSelect,
@@ -86,76 +81,34 @@ function PickerColumn<T extends string | number>({
   onSelect: (val: T) => void;
   format?: (val: T) => string;
 }) {
-  const scrollRef = useRef<FlatList<T>>(null);
-  const mounted = useRef(false);
-
-  useEffect(() => {
-    if (scrollRef.current && !mounted.current) {
-      mounted.current = true;
-      const idx = data.indexOf(selected);
-      if (idx >= 0) {
-        setTimeout(() => {
-          scrollRef.current?.scrollToOffset({ offset: idx * PICKER_ITEM_H, animated: false });
-        }, 50);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (mounted.current && scrollRef.current) {
-      const idx = data.indexOf(selected);
-      if (idx >= 0) {
-        scrollRef.current.scrollToOffset({ offset: idx * PICKER_ITEM_H, animated: true });
-      }
-    }
-  }, [selected]);
-
-  const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = e.nativeEvent.contentOffset.y;
-    const idx = Math.round(y / PICKER_ITEM_H);
-    const clamped = Math.max(0, Math.min(idx, data.length - 1));
-    if (data[clamped] !== selected) {
-      Haptics.selectionAsync();
-      onSelect(data[clamped]);
-    }
+  const idx = data.indexOf(selected);
+  const prev = () => {
+    const next = idx <= 0 ? data.length - 1 : idx - 1;
+    Haptics.selectionAsync();
+    onSelect(data[next]);
+  };
+  const next = () => {
+    const n = idx >= data.length - 1 ? 0 : idx + 1;
+    Haptics.selectionAsync();
+    onSelect(data[n]);
   };
 
   return (
-    <View style={pickerStyles.column}>
-      <View style={pickerStyles.highlight} pointerEvents="none" />
-      <FlatList
-        ref={scrollRef}
-        data={data}
-        keyExtractor={(item) => String(item)}
-        snapToInterval={PICKER_ITEM_H}
-        decelerationRate="fast"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingVertical: PICKER_ITEM_H }}
-        getItemLayout={(_, index) => ({ length: PICKER_ITEM_H, offset: PICKER_ITEM_H * index, index })}
-        onMomentumScrollEnd={onMomentumEnd}
-        onScrollEndDrag={onMomentumEnd}
-        renderItem={({ item }) => {
-          const isSelected = item === selected;
-          return (
-            <Pressable
-              onPress={() => {
-                Haptics.selectionAsync();
-                onSelect(item);
-              }}
-              style={pickerStyles.item}
-            >
-              <Text style={[pickerStyles.itemText, isSelected && pickerStyles.itemTextSelected]}>
-                {format ? format(item) : String(item)}
-              </Text>
-            </Pressable>
-          );
-        }}
-      />
+    <View style={pickerStyles.segment}>
+      <Pressable onPress={prev} style={pickerStyles.arrow} hitSlop={8}>
+        <Feather name="chevron-up" size={16} color={Colors.theme.textMuted} />
+      </Pressable>
+      <Text style={pickerStyles.segValue}>
+        {format ? format(selected) : String(selected)}
+      </Text>
+      <Pressable onPress={next} style={pickerStyles.arrow} hitSlop={8}>
+        <Feather name="chevron-down" size={16} color={Colors.theme.textMuted} />
+      </Pressable>
     </View>
   );
 }
 
-function TimeScrollPicker({
+function TimeSpinnerPicker({
   minutes,
   onChange,
   label,
@@ -168,21 +121,26 @@ function TimeScrollPicker({
 
   const setHour = (h: number) => onChange(pickerToMinutes(h, minute, period));
   const setMinute = (m: number) => onChange(pickerToMinutes(hour, m, period));
-  const setPeriod = (p: "AM" | "PM") => onChange(pickerToMinutes(hour, minute, p));
+  const togglePeriod = () => {
+    Haptics.selectionAsync();
+    onChange(pickerToMinutes(hour, minute, period === "AM" ? "PM" : "AM"));
+  };
 
   return (
     <View style={pickerStyles.wrapper}>
       <Text style={pickerStyles.label}>{label}</Text>
       <View style={pickerStyles.row}>
-        <PickerColumn data={PICKER_HOURS} selected={hour} onSelect={setHour} />
-        <Text style={pickerStyles.separator}>:</Text>
-        <PickerColumn
+        <SpinnerSegment data={PICKER_HOURS} selected={hour} onSelect={setHour} />
+        <Text style={pickerStyles.colon}>:</Text>
+        <SpinnerSegment
           data={PICKER_MINUTES}
           selected={minute}
           onSelect={setMinute}
           format={(v) => String(v).padStart(2, "0")}
         />
-        <PickerColumn data={PICKER_PERIODS} selected={period} onSelect={setPeriod} />
+        <Pressable onPress={togglePeriod} style={pickerStyles.periodBtn}>
+          <Text style={pickerStyles.periodText}>{period}</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -190,7 +148,7 @@ function TimeScrollPicker({
 
 const pickerStyles = StyleSheet.create({
   wrapper: {
-    gap: 8,
+    gap: 6,
   },
   label: {
     fontFamily: "DMSans_500Medium",
@@ -204,47 +162,45 @@ const pickerStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Colors.theme.bg2,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.theme.border,
-    paddingHorizontal: 8,
-    height: PICKER_ITEM_H * 3,
-    overflow: "hidden",
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    gap: 2,
   },
-  column: {
-    flex: 1,
-    height: PICKER_ITEM_H * 3,
-    position: "relative",
-  },
-  highlight: {
-    position: "absolute",
-    top: PICKER_ITEM_H,
-    left: 4,
-    right: 4,
-    height: PICKER_ITEM_H,
-    backgroundColor: `${Colors.palette.blue}18`,
-    borderRadius: 10,
-    zIndex: 1,
-  },
-  item: {
-    height: PICKER_ITEM_H,
+  segment: {
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 6,
   },
-  itemText: {
-    fontFamily: "DMMono_400Regular",
-    fontSize: 20,
-    color: Colors.theme.textMuted,
+  arrow: {
+    padding: 2,
   },
-  itemTextSelected: {
-    color: Colors.theme.text,
+  segValue: {
     fontFamily: "DMMono_500Medium",
+    fontSize: 22,
+    color: Colors.theme.text,
+    minWidth: 32,
+    textAlign: "center",
   },
-  separator: {
+  colon: {
     fontFamily: "DMMono_500Medium",
     fontSize: 22,
     color: Colors.theme.textSub,
-    marginHorizontal: 2,
+    marginBottom: 2,
+  },
+  periodBtn: {
+    backgroundColor: `${Colors.palette.blue}20`,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginLeft: 6,
+  },
+  periodText: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 14,
+    color: Colors.palette.blue,
   },
 });
 
@@ -333,10 +289,12 @@ function BlockItem({
       onPanResponderRelease: () => {
         isLongPressRef.current = false;
         callbackRefs.current.onDragEnd(block.id);
+        setTimeout(() => { didDragRef.current = false; }, 300);
       },
       onPanResponderTerminate: () => {
         isLongPressRef.current = false;
         callbackRefs.current.onDragEnd(block.id);
+        setTimeout(() => { didDragRef.current = false; }, 300);
       },
     })
   ).current;
@@ -360,6 +318,7 @@ function BlockItem({
   const handleComplete = (e: any) => {
     e.stopPropagation();
     didDragRef.current = true;
+    setTimeout(() => { didDragRef.current = false; }, 300);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onToggleComplete(block.id);
   };
@@ -873,13 +832,13 @@ export default function ScheduleScreen() {
                   </View>
                 </View>
 
-                <TimeScrollPicker
+                <TimeSpinnerPicker
                   minutes={editStartMin}
                   onChange={setEditStartMin}
                   label="Start Time"
                 />
 
-                <TimeScrollPicker
+                <TimeSpinnerPicker
                   minutes={editEndMin}
                   onChange={setEditEndMin}
                   label="End Time"
