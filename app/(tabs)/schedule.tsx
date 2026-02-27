@@ -24,7 +24,10 @@ import { useSchedule } from "@/context/ScheduleContext";
 import { TimeBlock, Category } from "@/types/schedule";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
-import * as Crypto from "expo-crypto";
+
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
 
 const MIN_PER_PX = 1.3; // 1 minute = 1.3px
 const HOUR_HEIGHT = 60 * MIN_PER_PX;
@@ -252,7 +255,7 @@ export default function ScheduleScreen() {
 
       setCurrentSchedule({
         ...currentSchedule,
-        id: Crypto.randomUUID(),
+        id: generateId(),
         blocks: allBlocks,
         generatedAt: new Date().toISOString(),
       });

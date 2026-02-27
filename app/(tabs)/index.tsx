@@ -26,7 +26,10 @@ import { useSchedule } from "@/context/ScheduleContext";
 import { Schedule, TimeBlock } from "@/types/schedule";
 import Colors from "@/constants/colors";
 import { getApiUrl } from "@/lib/query-client";
-import * as Crypto from "expo-crypto";
+
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
 
 const PROMPT_EXAMPLES = [
   "Gym at 7am, deep work on app for 3 hours, lunch, meeting at 2pm, study Spanish for 45 min",
@@ -127,7 +130,7 @@ export default function TodayScreen() {
       }));
 
       const schedule: Schedule = {
-        id: Crypto.randomUUID(),
+        id: generateId(),
         date: new Date().toISOString().split("T")[0],
         prompt: prompt.trim(),
         blocks,
