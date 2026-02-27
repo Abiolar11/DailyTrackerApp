@@ -27,11 +27,22 @@ A mobile Expo React Native app that converts natural language daily to-do prompt
 - Natural language prompt → AI-parsed tasks → deterministic scheduling algorithm
 - Visual hour-by-hour timeline with color-coded category blocks
 - Task completion with checkboxes (auto-learns from completions)
+- Drag-and-drop to reschedule: long-press a block then drag to move it to a new time (snaps to 5-min intervals)
 - Lock individual blocks, regenerate schedule preserving locked blocks
+- Tap any block to open edit modal (change duration, lock/unlock)
 - Learning engine: exponential moving average (α=0.3) for duration and preferred time
 - Schedule history with completion progress tracking
 - Local push notifications (15-min before each task)
 - Busy/free time summary bar with completion counter
+
+## Drag-and-Drop Details
+
+- Long-press (300ms) on an unlocked block to activate drag mode
+- Drag vertically to move the block to a new time slot
+- Block snaps to 5-minute intervals and is clamped within wake/sleep bounds
+- During drag: elevated shadow, 1.03x scale, time tooltip shows new position
+- Locked blocks cannot be dragged (show lock icon instead of move icon)
+- PanResponder from react-native handles the gesture; ScrollView disabled during drag
 
 ## Important Notes
 

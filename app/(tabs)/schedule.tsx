@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  PanResponder,
+  GestureResponderEvent,
+  PanResponderGestureState,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -62,31 +65,96 @@ function getCategoryColor(category: Category): string {
   return Colors.categories[category] || Colors.categories.other;
 }
 
-// Extracted as separate component to avoid useAnimatedStyle in loop
+const SNAP_INTERVAL = 5;
+
+function snapToInterval(minutes: number): number {
+  return Math.round(minutes / SNAP_INTERVAL) * SNAP_INTERVAL;
+}
+
 function BlockItem({
   block,
   wakeMinutes,
+  sleepMinutes,
   containerWidth,
   onPress,
   onToggleComplete,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+  isDragging,
+  dragOffset,
 }: {
   block: TimeBlock;
   wakeMinutes: number;
+  sleepMinutes: number;
   containerWidth: number;
   onPress: (block: TimeBlock) => void;
   onToggleComplete: (blockId: string) => void;
+  onDragStart: (blockId: string) => void;
+  onDragMove: (blockId: string, dy: number) => void;
+  onDragEnd: (blockId: string) => void;
+  isDragging: boolean;
+  dragOffset: number;
 }) {
   const scale = useSharedValue(1);
-  const top = (block.startMinutes - wakeMinutes) * MIN_PER_PX;
+  const baseTop = (block.startMinutes - wakeMinutes) * MIN_PER_PX;
+  const top = isDragging ? baseTop + dragOffset : baseTop;
   const height = Math.max(block.durationMinutes * MIN_PER_PX, 28);
   const color = getCategoryColor(block.category as Category);
   const completed = !!block.isCompleted;
+  const isLongPressRef = useRef(false);
+  const didDragRef = useRef(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lockedRef = useRef(block.isLocked);
+  lockedRef.current = block.isLocked;
 
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+  const rawDragStart = block.startMinutes + Math.round(dragOffset / MIN_PER_PX);
+  const snappedStart = snapToInterval(rawDragStart);
+  const clampedStart = Math.max(wakeMinutes, Math.min(sleepMinutes - block.durationMinutes, snappedStart));
+  const displayStartMin = isDragging ? clampedStart : block.startMinutes;
+  const displayEndMin = displayStartMin + block.durationMinutes;
+
+  const callbackRefs = useRef({ onDragStart, onDragMove, onDragEnd });
+  callbackRefs.current = { onDragStart, onDragMove, onDragEnd };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_evt, gestureState) => {
+        if (lockedRef.current) return false;
+        return isLongPressRef.current && Math.abs(gestureState.dy) > 2;
+      },
+      onMoveShouldSetPanResponderCapture: (_evt, gestureState) => {
+        if (lockedRef.current) return false;
+        return isLongPressRef.current && Math.abs(gestureState.dy) > 2;
+      },
+      onPanResponderGrant: () => {
+        didDragRef.current = true;
+        callbackRefs.current.onDragStart(block.id);
+      },
+      onPanResponderMove: (_evt, gestureState) => {
+        callbackRefs.current.onDragMove(block.id, gestureState.dy);
+      },
+      onPanResponderRelease: () => {
+        isLongPressRef.current = false;
+        callbackRefs.current.onDragEnd(block.id);
+      },
+      onPanResponderTerminate: () => {
+        isLongPressRef.current = false;
+        callbackRefs.current.onDragEnd(block.id);
+      },
+    })
+  ).current;
+
+  const handleLongPress = () => {
+    if (block.isLocked) return;
+    isLongPressRef.current = true;
+    didDragRef.current = false;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  };
 
   const handlePress = () => {
+    if (didDragRef.current) return;
     scale.value = withSpring(0.97, {}, () => {
       scale.value = withSpring(1);
     });
@@ -96,9 +164,14 @@ function BlockItem({
 
   const handleComplete = (e: any) => {
     e.stopPropagation();
+    didDragRef.current = true;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onToggleComplete(block.id);
   };
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
   return (
     <Animated.View
@@ -117,10 +190,25 @@ function BlockItem({
             : block.isLocked
             ? color
             : `${color}50`,
+          zIndex: isDragging ? 100 : 1,
+          opacity: isDragging ? 0.9 : 1,
+          ...(isDragging ? {
+            ...(Platform.OS === "web"
+              ? { boxShadow: "0 4px 16px rgba(0,0,0,0.3)" }
+              : { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 }),
+            elevation: 8,
+            transform: [{ scale: 1.03 }],
+          } : {}),
         },
       ]}
+      {...panResponder.panHandlers}
     >
-      <Pressable onPress={handlePress} style={styles.blockInner}>
+      <Pressable
+        onPress={handlePress}
+        onLongPress={handleLongPress}
+        delayLongPress={300}
+        style={styles.blockInner}
+      >
         <View style={styles.blockTop}>
           <Pressable
             onPress={handleComplete}
@@ -149,6 +237,9 @@ function BlockItem({
             {block.title}
           </Text>
           <View style={styles.blockIcons}>
+            {!block.isLocked && !isDragging && (
+              <Feather name="move" size={10} color={Colors.theme.textMuted} />
+            )}
             {block.isLocked && (
               <Feather name="lock" size={10} color={color} />
             )}
@@ -156,9 +247,16 @@ function BlockItem({
         </View>
         {height >= 48 && (
           <Text style={styles.blockTime}>
-            {minutesToTimeShort(block.startMinutes)} –{" "}
-            {minutesToTimeShort(block.endMinutes)}
+            {minutesToTimeShort(displayStartMin)} –{" "}
+            {minutesToTimeShort(displayEndMin)}
           </Text>
+        )}
+        {isDragging && (
+          <View style={styles.dragTimeTooltip}>
+            <Text style={styles.dragTimeText}>
+              {minutesToTimeShort(displayStartMin)} – {minutesToTimeShort(displayEndMin)}
+            </Text>
+          </View>
         )}
       </Pressable>
     </Animated.View>
@@ -196,6 +294,10 @@ export default function ScheduleScreen() {
   const [editDuration, setEditDuration] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [containerWidth, setContainerWidth] = useState(350);
+  const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
+  const [dragDy, setDragDy] = useState(0);
+  const dragDyRef = useRef(0);
+  const scrollEnabled = draggingBlockId === null;
 
   const blocks = currentSchedule?.blocks ?? [];
   const wakeMinutes = currentSchedule?.wakeMinutes ?? 420;
@@ -229,7 +331,39 @@ export default function ScheduleScreen() {
     };
   }, [blocks, wakeMinutes, sleepMinutes]);
 
+  const handleDragStart = useCallback((blockId: string) => {
+    setDraggingBlockId(blockId);
+    setDragDy(0);
+  }, []);
+
+  const handleDragMove = useCallback((_blockId: string, dy: number) => {
+    dragDyRef.current = dy;
+    setDragDy(dy);
+  }, []);
+
+  const handleDragEnd = useCallback((blockId: string) => {
+    const block = blocks.find((b) => b.id === blockId);
+    const currentDy = dragDyRef.current;
+    if (block && currentDy !== 0) {
+      const deltaMinutes = Math.round(currentDy / MIN_PER_PX);
+      const rawNewStart = block.startMinutes + deltaMinutes;
+      const snapped = snapToInterval(rawNewStart);
+      const newStart = Math.max(wakeMinutes, Math.min(sleepMinutes - block.durationMinutes, snapped));
+      if (newStart !== block.startMinutes) {
+        updateBlock(blockId, {
+          startMinutes: newStart,
+          endMinutes: newStart + block.durationMinutes,
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    }
+    dragDyRef.current = 0;
+    setDraggingBlockId(null);
+    setDragDy(0);
+  }, [blocks, wakeMinutes, sleepMinutes, updateBlock]);
+
   const openEdit = (block: TimeBlock) => {
+    if (draggingBlockId) return;
     setEditingBlock(block);
     setEditDuration(String(block.durationMinutes));
   };
@@ -390,6 +524,7 @@ export default function ScheduleScreen() {
       <ScrollView
         style={styles.timelineScroll}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={scrollEnabled}
         contentContainerStyle={{ paddingBottom: Platform.OS === "web" ? 120 : 100 }}
       >
         <View
@@ -421,9 +556,15 @@ export default function ScheduleScreen() {
               key={block.id}
               block={block}
               wakeMinutes={wakeMinutes}
+              sleepMinutes={sleepMinutes}
               containerWidth={containerWidth}
               onPress={openEdit}
               onToggleComplete={toggleComplete}
+              onDragStart={handleDragStart}
+              onDragMove={handleDragMove}
+              onDragEnd={handleDragEnd}
+              isDragging={draggingBlockId === block.id}
+              dragOffset={draggingBlockId === block.id ? dragDy : 0}
             />
           ))}
         </View>
@@ -737,6 +878,23 @@ const styles = StyleSheet.create({
     fontFamily: "DMMono_400Regular",
     fontSize: 10,
     color: Colors.theme.textMuted,
+  },
+  dragTimeTooltip: {
+    position: "absolute",
+    top: -24,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  dragTimeText: {
+    fontFamily: "DMMono_400Regular",
+    fontSize: 11,
+    color: Colors.palette.blue,
+    backgroundColor: `${Colors.palette.blue}18`,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: "hidden",
   },
   nowLine: {
     position: "absolute",
