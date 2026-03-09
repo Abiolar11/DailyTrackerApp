@@ -10,6 +10,7 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
   PanResponder,
   GestureResponderEvent,
   PanResponderGestureState,
@@ -451,6 +452,8 @@ export default function ScheduleScreen() {
   const [editStartMin, setEditStartMin] = useState(0);
   const [editEndMin, setEditEndMin] = useState(0);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [adjustInstruction, setAdjustInstruction] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addCategory, setAddCategory] = useState<Category>("other");
@@ -637,63 +640,56 @@ export default function ScheduleScreen() {
     }
   };
 
-  const handleRegenerate = useCallback(async () => {
-    if (!currentSchedule) return;
+  const handleAdjust = useCallback(async () => {
+    if (!currentSchedule || !adjustInstruction.trim()) return;
     setIsRegenerating(true);
+    setShowAdjustModal(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    const lockedBlocks = blocks.filter((b) => b.isLocked);
-
     try {
-      const learnedForApi: Record<string, { typicalDurationMinutes: number; preferredStartMinutes?: number }> = {};
-      Object.entries(learnedTasks).forEach(([sig, task]) => {
-        learnedForApi[sig] = {
-          typicalDurationMinutes: task.typicalDurationMinutes,
-          preferredStartMinutes: task.preferredStartMinutes,
-        };
-      });
-
       const baseUrl = getApiUrl();
-      const response = await fetch(`${baseUrl}api/parse-schedule`, {
+      const response = await fetch(`${baseUrl}api/modify-schedule`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: currentSchedule.prompt,
+          instruction: adjustInstruction.trim(),
+          currentBlocks: blocks,
           wakeTime: `${String(Math.floor(wakeMinutes / 60)).padStart(2, "0")}:${String(wakeMinutes % 60).padStart(2, "0")}`,
           sleepTime: `${String(Math.floor(sleepMinutes / 60)).padStart(2, "0")}:${String(sleepMinutes % 60).padStart(2, "0")}`,
           bufferMinutes: settings.bufferMinutes,
-          learnedTasks: learnedForApi,
         }),
       });
 
-      if (!response.ok) throw new Error("Regeneration failed");
+      if (!response.ok) throw new Error("Modification failed");
       const data = await response.json();
 
-      const newBlocks: TimeBlock[] = data.blocks
-        .filter(
-          (b: TimeBlock) =>
-            !lockedBlocks.some((lb) => lb.taskId === b.taskId)
-        )
-        .map((b: TimeBlock) => ({ ...b, isLocked: false }));
+      const newBlocks: TimeBlock[] = data.blocks.map((b: TimeBlock) => ({
+        ...b,
+        isLocked: false,
+        isCompleted: false,
+      }));
 
-      const allBlocks = [...lockedBlocks, ...newBlocks].sort(
-        (a, b) => a.startMinutes - b.startMinutes
-      );
+      const lockedBlocks = blocks.filter((b) => b.isLocked);
+      const mergedBlocks = [
+        ...lockedBlocks,
+        ...newBlocks.filter((nb) => !lockedBlocks.some((lb) => lb.title.toLowerCase() === nb.title.toLowerCase())),
+      ].sort((a, b) => a.startMinutes - b.startMinutes);
 
       setCurrentSchedule({
         ...currentSchedule,
         id: generateId(),
-        blocks: allBlocks,
+        blocks: mergedBlocks,
         generatedAt: new Date().toISOString(),
       });
 
+      setAdjustInstruction("");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
-      Alert.alert("Error", "Could not regenerate schedule.");
+      Alert.alert("Error", "Could not modify schedule. Please try again.");
     } finally {
       setIsRegenerating(false);
     }
-  }, [currentSchedule, blocks, learnedTasks, settings, wakeMinutes, sleepMinutes, setCurrentSchedule]);
+  }, [currentSchedule, adjustInstruction, blocks, settings, wakeMinutes, sleepMinutes, setCurrentSchedule]);
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
@@ -734,7 +730,7 @@ export default function ScheduleScreen() {
           </Text>
         </View>
         <Pressable
-          onPress={handleRegenerate}
+          onPress={() => { setAdjustInstruction(""); setShowAdjustModal(true); }}
           disabled={isRegenerating}
           style={({ pressed }) => [
             styles.regenBtn,
@@ -744,10 +740,10 @@ export default function ScheduleScreen() {
           {isRegenerating ? (
             <ActivityIndicator size="small" color={Colors.palette.blue} />
           ) : (
-            <Feather name="refresh-cw" size={16} color={Colors.palette.blue} />
+            <Feather name="edit-3" size={16} color={Colors.palette.blue} />
           )}
           <Text style={styles.regenText}>
-            {isRegenerating ? "..." : "Regen"}
+            {isRegenerating ? "Adjusting..." : "Adjust"}
           </Text>
         </Pressable>
       </View>
@@ -989,6 +985,62 @@ export default function ScheduleScreen() {
         </LinearGradient>
       </Pressable>
 
+      {/* Adjust Schedule Modal */}
+      <Modal
+        visible={showAdjustModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAdjustModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowAdjustModal(false)}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={0}
+          >
+            <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>Adjust Schedule</Text>
+              <Text style={[styles.settingLabel, { marginBottom: 8, textTransform: "none", letterSpacing: 0 }]}>
+                Describe what you'd like to change
+              </Text>
+              <TextInput
+                style={[styles.adjustInput]}
+                value={adjustInstruction}
+                onChangeText={setAdjustInstruction}
+                multiline
+                placeholder="e.g. Move gym to 6pm, add a 30min lunch break at noon, remove the meeting..."
+                placeholderTextColor={Colors.theme.textMuted}
+                textAlignVertical="top"
+                autoFocus
+              />
+              <View style={styles.modalActions}>
+                <Pressable
+                  onPress={() => setShowAdjustModal(false)}
+                  style={({ pressed }) => [styles.modalCancelBtn, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={handleAdjust}
+                  disabled={!adjustInstruction.trim()}
+                  style={({ pressed }) => [
+                    styles.modalSaveBtn,
+                    { opacity: pressed || !adjustInstruction.trim() ? 0.5 : 1 },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={[Colors.palette.blue, Colors.palette.blueDim]}
+                    style={styles.modalSaveGradient}
+                  >
+                    <Feather name="zap" size={16} color="#fff" />
+                    <Text style={styles.modalSaveText}>Apply</Text>
+                  </LinearGradient>
+                </Pressable>
+              </View>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
+
       {/* Add Task Modal */}
       <Modal
         visible={showAddModal}
@@ -1162,6 +1214,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: `${Colors.palette.blue}40`,
+  },
+  adjustInput: {
+    backgroundColor: Colors.theme.bg3,
+    borderRadius: 12,
+    padding: 14,
+    color: Colors.theme.text,
+    fontFamily: "DMSans_400Regular",
+    fontSize: 15,
+    lineHeight: 22,
+    minHeight: 100,
+    borderWidth: 1,
+    borderColor: Colors.theme.border,
+    textAlignVertical: "top" as const,
+    marginBottom: 8,
   },
   regenText: {
     fontFamily: "DMSans_600SemiBold",

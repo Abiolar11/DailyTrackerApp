@@ -344,6 +344,98 @@ Rules:
     }
   });
 
+  app.post("/api/modify-schedule", parseScheduleLimiter, async (req: Request, res: Response) => {
+    try {
+      const { instruction, currentBlocks, wakeTime, sleepTime, bufferMinutes } = req.body;
+
+      if (!instruction || typeof instruction !== "string") {
+        return res.status(400).json({ error: "Modification instruction is required" });
+      }
+      if (instruction.length > MAX_PROMPT_LENGTH) {
+        return res.status(400).json({ error: `Instruction must be ${MAX_PROMPT_LENGTH} characters or fewer` });
+      }
+      if (!currentBlocks || !Array.isArray(currentBlocks)) {
+        return res.status(400).json({ error: "Current schedule blocks are required" });
+      }
+
+      const sanitizedInstruction = sanitize(instruction);
+      const wakeMinutes = timeToMinutes(wakeTime || "07:00");
+      const sleepMinutes = timeToMinutes(sleepTime || "23:00");
+
+      const currentScheduleDesc = currentBlocks
+        .filter((b: any) => !b.isBuffer)
+        .map((b: any) => {
+          const startH = Math.floor(b.startMinutes / 60);
+          const startM = b.startMinutes % 60;
+          const endH = Math.floor(b.endMinutes / 60);
+          const endM = b.endMinutes % 60;
+          const start = `${String(startH).padStart(2, "0")}:${String(startM).padStart(2, "0")}`;
+          const end = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+          return `- ${b.title} (${start}-${end}, ${b.category}, ${b.priority} priority${b.isLocked ? ", LOCKED" : ""}${b.isCompleted ? ", COMPLETED" : ""})`;
+        })
+        .join("\n");
+
+      const systemPrompt = `You are a schedule modification assistant. The user has an existing schedule and wants to modify it.
+
+Current schedule (${wakeTime || "07:00"} to ${sleepTime || "23:00"}):
+${currentScheduleDesc}
+
+The user will describe what they want changed. Apply their modification while keeping the rest of the schedule intact.
+
+Rules:
+- LOCKED tasks must NOT be moved or removed — keep them exactly as they are
+- COMPLETED tasks should generally stay in place unless the user explicitly asks to move them
+- When adding new tasks, find appropriate gaps in the schedule
+- When removing tasks, just exclude them from the output
+- When moving tasks, adjust times accordingly and resolve any conflicts
+- Keep existing task properties (category, priority) unless the user asks to change them
+- Buffer of ${bufferMinutes || 10} minutes between tasks when possible
+
+Return ONLY valid JSON with this shape:
+{
+  "tasks": [
+    {
+      "id": "unique string",
+      "title": "Task title",
+      "category": "work|health|personal|learning|social|rest|other",
+      "priority": "high|medium|low",
+      "durationMinutes": number,
+      "flexibility": "fixed|high|medium|low",
+      "fixedStartTime": "HH:MM (24h)",
+      "notes": "optional"
+    }
+  ]
+}
+
+Include ALL tasks that should remain in the schedule (modified + unchanged). Every task must have a fixedStartTime.`;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.2",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: sanitizedInstruction },
+        ],
+        response_format: { type: "json_object" },
+        max_completion_tokens: 2000,
+      });
+
+      const content = response.choices[0]?.message?.content || "{}";
+      const parsed = JSON.parse(content);
+      const tasks: ParsedTaskRaw[] = parsed.tasks || [];
+
+      const blocks = generateSchedule(tasks, wakeMinutes, sleepMinutes, bufferMinutes || 10);
+
+      res.json({
+        blocks,
+        wakeMinutes,
+        sleepMinutes,
+      });
+    } catch (error) {
+      console.error("Error modifying schedule:", error);
+      res.status(500).json({ error: "Failed to modify schedule" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
