@@ -992,53 +992,48 @@ export default function ScheduleScreen() {
         animationType="slide"
         onRequestClose={() => setShowAdjustModal(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowAdjustModal(false)}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={0}
-          >
-            <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>Adjust Schedule</Text>
-              <Text style={[styles.settingLabel, { marginBottom: 8, textTransform: "none", letterSpacing: 0 }]}>
-                Describe what you'd like to change
-              </Text>
-              <TextInput
-                style={[styles.adjustInput]}
-                value={adjustInstruction}
-                onChangeText={setAdjustInstruction}
-                multiline
-                placeholder="e.g. Move gym to 6pm, add a 30min lunch break at noon, remove the meeting..."
-                placeholderTextColor={Colors.theme.textMuted}
-                textAlignVertical="top"
-                autoFocus
-              />
-              <View style={styles.modalActions}>
-                <Pressable
-                  onPress={() => setShowAdjustModal(false)}
-                  style={({ pressed }) => [styles.modalCancelBtn, { opacity: pressed ? 0.7 : 1 }]}
+        <View style={styles.modalOverlay}>
+          <View style={styles.adjustModalContent}>
+            <Text style={styles.modalTitle}>Adjust Schedule</Text>
+            <Text style={[styles.settingLabel, { marginBottom: 8, textTransform: "none", letterSpacing: 0 }]}>
+              Describe what you'd like to change
+            </Text>
+            <TextInput
+              style={styles.adjustInput}
+              value={adjustInstruction}
+              onChangeText={setAdjustInstruction}
+              multiline
+              placeholder="e.g. Move gym to 6pm, add a 30min lunch break at noon, remove the meeting..."
+              placeholderTextColor={Colors.theme.textMuted}
+              textAlignVertical="top"
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setShowAdjustModal(false)}
+                style={({ pressed }) => [styles.modalCancelBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleAdjust}
+                disabled={!adjustInstruction.trim()}
+                style={({ pressed }) => [
+                  styles.modalSaveBtn,
+                  { opacity: pressed || !adjustInstruction.trim() ? 0.5 : 1 },
+                ]}
+              >
+                <LinearGradient
+                  colors={[Colors.palette.blue, Colors.palette.blueDim]}
+                  style={styles.modalSaveGradient}
                 >
-                  <Text style={styles.modalCancelText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  onPress={handleAdjust}
-                  disabled={!adjustInstruction.trim()}
-                  style={({ pressed }) => [
-                    styles.modalSaveBtn,
-                    { opacity: pressed || !adjustInstruction.trim() ? 0.5 : 1 },
-                  ]}
-                >
-                  <LinearGradient
-                    colors={[Colors.palette.blue, Colors.palette.blueDim]}
-                    style={styles.modalSaveGradient}
-                  >
-                    <Feather name="zap" size={16} color="#fff" />
-                    <Text style={styles.modalSaveText}>Apply</Text>
-                  </LinearGradient>
-                </Pressable>
-              </View>
-            </Pressable>
-          </KeyboardAvoidingView>
-        </Pressable>
+                  <Feather name="zap" size={16} color="#fff" />
+                  <Text style={styles.modalSaveText}>Apply</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Add Task Modal */}
@@ -1215,6 +1210,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: `${Colors.palette.blue}40`,
   },
+  adjustModalContent: {
+    backgroundColor: Colors.theme.bg1,
+    borderRadius: 24,
+    padding: 20,
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: Colors.theme.border,
+    maxHeight: "80%" as any,
+  },
   adjustInput: {
     backgroundColor: Colors.theme.bg3,
     borderRadius: 12,
@@ -1224,6 +1228,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     minHeight: 100,
+    maxHeight: 160,
     borderWidth: 1,
     borderColor: Colors.theme.border,
     textAlignVertical: "top" as const,
