@@ -3,10 +3,10 @@ import { createServer, type Server } from "node:http";
 import rateLimit from "express-rate-limit";
 import OpenAI from "openai";
 
-const useReplitAI = !!process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+const usePersonalKey = !!process.env.OPENAI_API_KEY;
 const openai = new OpenAI({
-  apiKey: useReplitAI ? process.env.AI_INTEGRATIONS_OPENAI_API_KEY : process.env.OPENAI_API_KEY,
-  ...(useReplitAI && process.env.AI_INTEGRATIONS_OPENAI_BASE_URL
+  apiKey: usePersonalKey ? process.env.OPENAI_API_KEY : process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  ...(!usePersonalKey && process.env.AI_INTEGRATIONS_OPENAI_BASE_URL
     ? { baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL }
     : {}),
 });
