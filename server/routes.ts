@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
+import rateLimit from "express-rate-limit";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -160,8 +161,23 @@ function generateSchedule(
   return blocks;
 }
 
+const parseScheduleLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later" },
+});
+
+function sanitize(input: string): string {
+  return input.replace(/[<>]/g, "").trim();
+}
+
+const MAX_PROMPT_LENGTH = 2000;
+const TIME_REGEX = /^\d{2}:\d{2}$/;
+
 export async function registerRoutes(app: Express): Promise<Server> {
-  app.post("/api/parse-schedule", async (req: Request, res: Response) => {
+  app.post("/api/parse-schedule", parseScheduleLimiter, async (req: Request, res: Response) => {
     try {
       const {
         prompt,
@@ -171,9 +187,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         learnedTasks = {},
       }: ParseTasksRequest = req.body;
 
-      if (!prompt) {
+      if (!prompt || typeof prompt !== "string") {
         return res.status(400).json({ error: "Prompt is required" });
       }
+
+      if (prompt.length > MAX_PROMPT_LENGTH) {
+        return res.status(400).json({ error: `Prompt must be ${MAX_PROMPT_LENGTH} characters or fewer` });
+      }
+
+      if (wakeTime && !TIME_REGEX.test(wakeTime)) {
+        return res.status(400).json({ error: "Invalid wakeTime format, expected HH:MM" });
+      }
+
+      if (sleepTime && !TIME_REGEX.test(sleepTime)) {
+        return res.status(400).json({ error: "Invalid sleepTime format, expected HH:MM" });
+      }
+
+      const wakeH = parseInt((wakeTime || "07:00").split(":")[0]);
+      const wakeM = parseInt((wakeTime || "07:00").split(":")[1]);
+      const sleepH = parseInt((sleepTime || "23:00").split(":")[0]);
+      const sleepM = parseInt((sleepTime || "23:00").split(":")[1]);
+      if (wakeH < 0 || wakeH > 23 || wakeM < 0 || wakeM > 59 || sleepH < 0 || sleepH > 23 || sleepM < 0 || sleepM > 59) {
+        return res.status(400).json({ error: "Invalid time values: hours must be 0-23, minutes 0-59" });
+      }
+
+      const wakeTotal = wakeH * 60 + wakeM;
+      const sleepTotal = sleepH * 60 + sleepM;
+      if (sleepTotal <= wakeTotal) {
+        return res.status(400).json({ error: "Sleep time must be after wake time" });
+      }
+
+      if (bufferMinutes !== undefined && (typeof bufferMinutes !== "number" || bufferMinutes < 0 || bufferMinutes > 60)) {
+        return res.status(400).json({ error: "bufferMinutes must be a number between 0 and 60" });
+      }
+
+      const sanitizedPrompt = sanitize(prompt);
 
       const wakeMinutes = timeToMinutes(wakeTime || "07:00");
       const sleepMinutes = timeToMinutes(sleepTime || "23:00");
@@ -254,7 +302,7 @@ Rules:
         model: "gpt-5.2",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: prompt },
+          { role: "user", content: sanitizedPrompt },
         ],
         response_format: { type: "json_object" },
         max_completion_tokens: 2000,

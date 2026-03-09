@@ -32,10 +32,14 @@ yarn-error.*
 *.pem
 
 # local env files
-.env*.local
+.env
+.env.*
+!.env.example
 
 # typescript
 *.tsbuildinfo
 .vercel
 
-.env
+# build
+static-build/
+*.log

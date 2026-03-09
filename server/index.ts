@@ -1,10 +1,12 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import * as fs from "fs";
 import * as path from "path";
 
 const app = express();
+app.set("trust proxy", 1);
 const log = console.log;
 
 declare module "http" {
@@ -226,6 +228,10 @@ function setupErrorHandler(app: express.Application) {
 }
 
 (async () => {
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }));
   setupCors(app);
   setupBodyParsing(app);
   setupRequestLogging(app);

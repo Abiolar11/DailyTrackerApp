@@ -9,21 +9,25 @@ A mobile Expo React Native app that converts natural language daily to-do prompt
 - **AI**: GPT-5.2 via Replit AI Integrations (OpenAI-compatible) for task parsing
 - **State**: React Context (`ScheduleContext`) with AsyncStorage persistence
 - **Styling**: Dark theme, DM Sans/DM Mono fonts, blue/amber palette
+- **Security**: helmet for HTTP headers, express-rate-limit (10 req/min on parse endpoint), input validation/sanitization
 
 ## Key Files
 
-- `app/(tabs)/index.tsx` — Today tab: natural language input, settings, schedule generation
+- `app/(tabs)/index.tsx` — Today tab: calendar view (week strip + expandable full month), prompt input, schedule generation for any date
 - `app/(tabs)/schedule.tsx` — Schedule tab: visual timeline with hour markers, task completion checkboxes, edit modal, lock/regenerate
 - `app/(tabs)/history.tsx` — History tab: past schedules list, completion stats, learned patterns info, detail modal
 - `app/(tabs)/_layout.tsx` — Tab layout with 3 tabs (Today, Schedule, History)
 - `context/ScheduleContext.tsx` — Global state: schedule, settings, learned tasks, history (up to 60 days)
-- `server/routes.ts` — Backend API routes, LLM task parsing
+- `server/routes.ts` — Backend API routes, LLM task parsing, rate limiting, input validation
+- `server/index.ts` — Express server setup with helmet, CORS, proxy trust
 - `types/schedule.ts` — TypeScript types (TimeBlock, Schedule, UserSettings, etc.)
 - `lib/notifications.ts` — Local push notification scheduling (15-min reminders)
 - `constants/colors.ts` — Theme colors and category color mapping
+- `.env.example` — Documents required environment variables for GitHub
 
 ## Features
 
+- **Calendar Home**: Week strip (default) with expandable full month calendar; tap any date to select; supports future date planning
 - Natural language prompt → AI-parsed tasks → deterministic scheduling algorithm
 - Visual hour-by-hour timeline with color-coded category blocks
 - Task completion with checkboxes (auto-learns from completions)
@@ -45,6 +49,15 @@ A mobile Expo React Native app that converts natural language daily to-do prompt
 - During drag: elevated shadow, 1.03x scale, time tooltip shows new position
 - Locked blocks cannot be dragged (show lock icon instead of move icon)
 - PanResponder from react-native handles the gesture; ScrollView disabled during drag
+
+## Security
+
+- `helmet` middleware for security headers (CSP and COEP disabled for Expo compatibility)
+- `express-rate-limit` on `/api/parse-schedule`: 10 requests per minute per IP
+- `trust proxy` set to 1 for accurate client IP behind Replit proxy
+- Input validation: prompt max 2000 chars, HH:MM format with 0-23h/0-59m range checks, wake < sleep ordering
+- Prompt sanitization: strips `<>` characters
+- All secrets via environment variables, `.env.example` provided for GitHub
 
 ## Important Notes
 
