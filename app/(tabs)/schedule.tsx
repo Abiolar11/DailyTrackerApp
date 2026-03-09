@@ -614,18 +614,27 @@ export default function ScheduleScreen() {
 
   const deleteEditingBlock = () => {
     if (!editingBlock) return;
-    Alert.alert("Remove Task", `Remove "${editingBlock.title}" from your schedule?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: () => {
-          removeBlock(editingBlock.id);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          setEditingBlock(null);
+    if (Platform.OS === "web") {
+      const confirmed = window.confirm(`Remove "${editingBlock.title}" from your schedule?`);
+      if (confirmed) {
+        removeBlock(editingBlock.id);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        setEditingBlock(null);
+      }
+    } else {
+      Alert.alert("Remove Task", `Remove "${editingBlock.title}" from your schedule?`, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            removeBlock(editingBlock.id);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            setEditingBlock(null);
+          },
         },
-      },
-    ]);
+      ]);
+    }
   };
 
   const handleRegenerate = useCallback(async () => {
