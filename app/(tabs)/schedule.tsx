@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,11 +10,11 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
-  KeyboardAvoidingView,
   PanResponder,
   GestureResponderEvent,
   PanResponderGestureState,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -25,9 +25,10 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import { useSchedule } from "@/context/ScheduleContext";
-import { TimeBlock, Category, Priority } from "@/types/schedule";
+import { TimeBlock, Category, Priority, Schedule } from "@/types/schedule";
 import Colors from "@/constants/colors";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, apiRequest } from "@/lib/query-client";
+import { fetch } from "expo/fetch";
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -433,6 +434,20 @@ function NowIndicator({ wakeMinutes }: { wakeMinutes: number }) {
   );
 }
 
+function formatDateISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
 export default function ScheduleScreen() {
   const insets = useSafeAreaInsets();
   const {
@@ -446,6 +461,7 @@ export default function ScheduleScreen() {
     settings,
     learnedTasks,
     recordTaskCompletion,
+    scheduleHistory,
   } = useSchedule();
 
   const [editingBlock, setEditingBlock] = useState<TimeBlock | null>(null);
@@ -465,10 +481,64 @@ export default function ScheduleScreen() {
   const [dragDy, setDragDy] = useState(0);
   const dragDyRef = useRef(0);
   const scrollEnabled = draggingBlockId === null;
+  const [viewDate, setViewDate] = useState<Date>(() => new Date());
+  const [viewSchedule, setViewSchedule] = useState<Schedule | null>(null);
+  const [loadingDate, setLoadingDate] = useState(false);
 
-  const blocks = currentSchedule?.blocks ?? [];
-  const wakeMinutes = currentSchedule?.wakeMinutes ?? 420;
-  const sleepMinutes = currentSchedule?.sleepMinutes ?? 1380;
+  const todayStr = formatDateISO(new Date());
+  const viewDateStr = formatDateISO(viewDate);
+  const isViewingCurrent = currentSchedule?.date === viewDateStr;
+  const isViewingToday = viewDateStr === todayStr;
+  const displaySchedule = isViewingCurrent ? currentSchedule : viewSchedule;
+
+  useEffect(() => {
+    if (!isViewingCurrent) {
+      const found = scheduleHistory.find((s) => s.date === viewDateStr);
+      if (found) {
+        setViewSchedule(found);
+        setLoadingDate(false);
+      } else {
+        setLoadingDate(true);
+        const requestDate = viewDateStr;
+        (async () => {
+          try {
+            const baseUrl = getApiUrl();
+            const res = await fetch(new URL(`/api/schedules/${requestDate}`, baseUrl).toString(), { credentials: "include" });
+            if (requestDate !== formatDateISO(viewDate)) return;
+            if (res.ok) {
+              const data = await res.json();
+              setViewSchedule(data);
+            } else {
+              setViewSchedule(null);
+            }
+          } catch {
+            if (requestDate === formatDateISO(viewDate)) {
+              setViewSchedule(null);
+            }
+          } finally {
+            setLoadingDate(false);
+          }
+        })();
+      }
+    } else {
+      setViewSchedule(null);
+    }
+  }, [viewDateStr, isViewingCurrent, scheduleHistory]);
+
+  useEffect(() => {
+    if (currentSchedule) {
+      const scheduleDate = new Date(currentSchedule.date + "T00:00:00");
+      setViewDate(scheduleDate);
+    }
+  }, [currentSchedule?.id]);
+
+  const navigateDate = useCallback((offset: number) => {
+    setViewDate((prev) => addDays(prev, offset));
+  }, []);
+
+  const blocks = displaySchedule?.blocks ?? [];
+  const wakeMinutes = displaySchedule?.wakeMinutes ?? 420;
+  const sleepMinutes = displaySchedule?.sleepMinutes ?? 1380;
   const totalHeight = (sleepMinutes - wakeMinutes) * MIN_PER_PX;
 
   const hourMarkers = useMemo(() => {
@@ -693,19 +763,50 @@ export default function ScheduleScreen() {
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
-  if (!currentSchedule || blocks.length === 0) {
+  if (loadingDate) {
+    return (
+      <LinearGradient colors={[Colors.theme.bg0, Colors.theme.bg1]} style={{ flex: 1 }}>
+        <View style={[styles.emptyContainer, { paddingTop: topPad + 20 }]}>
+          <ActivityIndicator size="large" color={Colors.palette.blue} />
+          <Text style={styles.emptyText}>Loading schedule...</Text>
+        </View>
+      </LinearGradient>
+    );
+  }
+
+  if (!displaySchedule || blocks.length === 0) {
     return (
       <LinearGradient
         colors={[Colors.theme.bg0, Colors.theme.bg1]}
         style={{ flex: 1 }}
       >
-        <View
-          style={[styles.emptyContainer, { paddingTop: topPad + 20 }]}
-        >
+        <View style={[styles.header, { paddingTop: topPad + 8 }]}>
+          <View style={styles.headerLeft}>
+            <View style={styles.dateNav}>
+              <Pressable onPress={() => navigateDate(-1)} style={styles.dateNavBtn} hitSlop={12}>
+                <Feather name="chevron-left" size={20} color={Colors.theme.textSub} />
+              </Pressable>
+              <Pressable onPress={() => setViewDate(new Date())} hitSlop={8}>
+                <Text style={styles.headerTitle}>
+                  {viewDateStr === todayStr ? "Today" : viewDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </Text>
+                <Text style={styles.headerDate}>
+                  {viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => navigateDate(1)} style={styles.dateNavBtn} hitSlop={12}>
+                <Feather name="chevron-right" size={20} color={Colors.theme.textSub} />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+        <View style={styles.emptyContainer}>
           <Feather name="calendar" size={48} color={Colors.theme.textMuted} />
-          <Text style={styles.emptyTitle}>No Schedule Yet</Text>
+          <Text style={styles.emptyTitle}>No Schedule</Text>
           <Text style={styles.emptyText}>
-            Go to Today and describe what you need to do. Your time-blocked plan will appear here.
+            {viewDateStr === todayStr
+              ? "Go to Today and describe what you need to do. Your time-blocked plan will appear here."
+              : `No schedule found for ${viewDate.toLocaleDateString("en-US", { month: "long", day: "numeric" })}. Navigate to another date or go to Today to create one.`}
           </Text>
         </View>
       </LinearGradient>
@@ -720,15 +821,24 @@ export default function ScheduleScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Today's Plan</Text>
-          <Text style={styles.headerDate}>
-            {new Date(currentSchedule.date).toLocaleDateString("en-US", {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-            })}
-          </Text>
+          <View style={styles.dateNav}>
+            <Pressable onPress={() => navigateDate(-1)} style={styles.dateNavBtn} hitSlop={12}>
+              <Feather name="chevron-left" size={20} color={Colors.theme.textSub} />
+            </Pressable>
+            <Pressable onPress={() => setViewDate(new Date())} hitSlop={8}>
+              <Text style={styles.headerTitle}>
+                {viewDateStr === todayStr ? "Today's Plan" : viewDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </Text>
+              <Text style={styles.headerDate}>
+                {viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+              </Text>
+            </Pressable>
+            <Pressable onPress={() => navigateDate(1)} style={styles.dateNavBtn} hitSlop={12}>
+              <Feather name="chevron-right" size={20} color={Colors.theme.textSub} />
+            </Pressable>
+          </View>
         </View>
+        {isViewingCurrent && (
         <Pressable
           onPress={() => { setAdjustInstruction(""); setShowAdjustModal(true); }}
           disabled={isRegenerating}
@@ -746,6 +856,7 @@ export default function ScheduleScreen() {
             {isRegenerating ? "Adjusting..." : "Adjust"}
           </Text>
         </Pressable>
+        )}
       </View>
 
       {/* Summary Bar */}
@@ -970,6 +1081,7 @@ export default function ScheduleScreen() {
       </Modal>
 
       {/* Add Task FAB */}
+      {isViewingCurrent && (
       <Pressable
         onPress={openAddModal}
         style={({ pressed }) => [
@@ -984,6 +1096,7 @@ export default function ScheduleScreen() {
           <Feather name="plus" size={24} color="#fff" />
         </LinearGradient>
       </Pressable>
+      )}
 
       {/* Adjust Schedule Modal */}
       <Modal
@@ -992,8 +1105,14 @@ export default function ScheduleScreen() {
         animationType="slide"
         onRequestClose={() => setShowAdjustModal(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior="padding"
+          keyboardVerticalOffset={0}
+        >
+          <Pressable style={{ flex: 1 }} onPress={() => setShowAdjustModal(false)} />
           <View style={styles.adjustModalContent}>
+            <View style={styles.adjustModalHandle} />
             <Text style={styles.modalTitle}>Adjust Schedule</Text>
             <Text style={[styles.settingLabel, { marginBottom: 8, textTransform: "none", letterSpacing: 0 }]}>
               Describe what you'd like to change
@@ -1003,7 +1122,7 @@ export default function ScheduleScreen() {
               value={adjustInstruction}
               onChangeText={setAdjustInstruction}
               multiline
-              placeholder="e.g. Move gym to 6pm, add a 30min lunch break at noon, remove the meeting..."
+              placeholder="e.g. Move gym to 6pm, add a 30min lunch break at noon..."
               placeholderTextColor={Colors.theme.textMuted}
               textAlignVertical="top"
               autoFocus
@@ -1033,7 +1152,7 @@ export default function ScheduleScreen() {
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Add Task Modal */}
@@ -1212,12 +1331,35 @@ const styles = StyleSheet.create({
   },
   adjustModalContent: {
     backgroundColor: Colors.theme.bg1,
-    borderRadius: 24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 20,
-    marginHorizontal: 16,
+    paddingBottom: Platform.OS === "web" ? 20 : 34,
+    borderTopWidth: 1,
+    borderColor: Colors.theme.border,
+  },
+  adjustModalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: Colors.theme.border,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 12,
+  },
+  dateNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  dateNavBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: Colors.theme.bg2,
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: Colors.theme.border,
-    maxHeight: "80%" as any,
   },
   adjustInput: {
     backgroundColor: Colors.theme.bg3,
