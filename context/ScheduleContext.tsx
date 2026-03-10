@@ -14,6 +14,8 @@ import {
   scheduleBlockReminders,
   cancelAllReminders,
 } from "@/lib/notifications";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { fetch } from "expo/fetch";
 
 const SETTINGS_KEY = "dayflow_settings";
 const SCHEDULE_KEY = "dayflow_current_schedule";
@@ -49,6 +51,12 @@ interface ScheduleContextValue {
 
 const ScheduleContext = createContext<ScheduleContextValue | null>(null);
 
+function syncToServer(method: string, path: string, data?: any) {
+  apiRequest(method, path, data).catch((err) =>
+    console.warn("Server sync failed:", err.message)
+  );
+}
+
 export function ScheduleProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [currentSchedule, setCurrentScheduleState] = useState<Schedule | null>(null);
@@ -59,16 +67,42 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const [settingsStr, scheduleStr, learnedStr, historyStr] = await Promise.all([
+        const [localSettings, localSchedule, localLearned, localHistory] = await Promise.all([
           AsyncStorage.getItem(SETTINGS_KEY),
           AsyncStorage.getItem(SCHEDULE_KEY),
           AsyncStorage.getItem(LEARNED_KEY),
           AsyncStorage.getItem(HISTORY_KEY),
         ]);
-        if (settingsStr) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(settingsStr) });
-        if (scheduleStr) setCurrentScheduleState(JSON.parse(scheduleStr));
-        if (learnedStr) setLearnedTasks(JSON.parse(learnedStr));
-        if (historyStr) setScheduleHistory(JSON.parse(historyStr));
+        if (localSettings) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(localSettings) });
+        if (localSchedule) setCurrentScheduleState(JSON.parse(localSchedule));
+        if (localLearned) setLearnedTasks(JSON.parse(localLearned));
+        if (localHistory) setScheduleHistory(JSON.parse(localHistory));
+
+        try {
+          const baseUrl = getApiUrl();
+          const [settingsRes, learnedRes, historyRes] = await Promise.all([
+            fetch(new URL("/api/settings", baseUrl).toString(), { credentials: "include" }),
+            fetch(new URL("/api/learned-tasks", baseUrl).toString(), { credentials: "include" }),
+            fetch(new URL("/api/schedules", baseUrl).toString(), { credentials: "include" }),
+          ]);
+          if (settingsRes.ok) {
+            const serverSettings = await settingsRes.json();
+            setSettings(serverSettings);
+            AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(serverSettings)).catch(console.warn);
+          }
+          if (learnedRes.ok) {
+            const serverLearned = await learnedRes.json();
+            setLearnedTasks(serverLearned);
+            AsyncStorage.setItem(LEARNED_KEY, JSON.stringify(serverLearned)).catch(console.warn);
+          }
+          if (historyRes.ok) {
+            const serverHistory = await historyRes.json();
+            setScheduleHistory(serverHistory);
+            AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(serverHistory)).catch(console.warn);
+          }
+        } catch {
+          // Server unavailable, use local data
+        }
       } catch (e) {
         console.warn("Failed to load from storage", e);
       } finally {
@@ -81,8 +115,14 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     setSettings((prev) => {
       const next = { ...prev, ...updates };
       AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(next)).catch(console.warn);
+      syncToServer("PUT", "/api/settings", next);
       return next;
     });
+  }, []);
+
+  const persistSchedule = useCallback((schedule: Schedule) => {
+    AsyncStorage.setItem(SCHEDULE_KEY, JSON.stringify(schedule)).catch(console.warn);
+    syncToServer("POST", "/api/schedules", schedule);
   }, []);
 
   const saveScheduleToHistory = useCallback((schedule: Schedule) => {
@@ -101,7 +141,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       }
       setCurrentScheduleState(s);
       if (s) {
-        AsyncStorage.setItem(SCHEDULE_KEY, JSON.stringify(s)).catch(console.warn);
+        persistSchedule(s);
         if (settings.notificationsEnabled) {
           requestNotificationPermission().then((granted) => {
             if (granted) scheduleBlockReminders(s.blocks);
@@ -112,12 +152,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         cancelAllReminders();
       }
     },
-    [currentSchedule, settings.notificationsEnabled, saveScheduleToHistory]
+    [currentSchedule, settings.notificationsEnabled, saveScheduleToHistory, persistSchedule]
   );
-
-  const persistCurrentSchedule = useCallback((schedule: Schedule) => {
-    AsyncStorage.setItem(SCHEDULE_KEY, JSON.stringify(schedule)).catch(console.warn);
-  }, []);
 
   const updateBlock = useCallback((blockId: string, updates: Partial<TimeBlock>) => {
     setCurrentScheduleState((prev) => {
@@ -126,10 +162,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         ...prev,
         blocks: prev.blocks.map((b) => (b.id === blockId ? { ...b, ...updates } : b)),
       };
-      persistCurrentSchedule(next);
+      persistSchedule(next);
       return next;
     });
-  }, [persistCurrentSchedule]);
+  }, [persistSchedule]);
 
   const addBlock = useCallback((block: TimeBlock) => {
     setCurrentScheduleState((prev) => {
@@ -138,7 +174,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         ...prev,
         blocks: [...prev.blocks, block].sort((a, b) => a.startMinutes - b.startMinutes),
       };
-      persistCurrentSchedule(next);
+      persistSchedule(next);
       if (settings.notificationsEnabled) {
         requestNotificationPermission().then((granted) => {
           if (granted) scheduleBlockReminders(next.blocks);
@@ -146,7 +182,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-  }, [persistCurrentSchedule, settings.notificationsEnabled]);
+  }, [persistSchedule, settings.notificationsEnabled]);
 
   const removeBlock = useCallback((blockId: string) => {
     setCurrentScheduleState((prev) => {
@@ -155,10 +191,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         ...prev,
         blocks: prev.blocks.filter((b) => b.id !== blockId),
       };
-      persistCurrentSchedule(next);
+      persistSchedule(next);
       return next;
     });
-  }, [persistCurrentSchedule]);
+  }, [persistSchedule]);
 
   const toggleLock = useCallback((blockId: string) => {
     setCurrentScheduleState((prev) => {
@@ -169,10 +205,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
           b.id === blockId ? { ...b, isLocked: !b.isLocked } : b
         ),
       };
-      persistCurrentSchedule(next);
+      persistSchedule(next);
       return next;
     });
-  }, [persistCurrentSchedule]);
+  }, [persistSchedule]);
 
   const recordTaskCompletion = useCallback(
     (title: string, durationMinutes: number, startMinutes: number) => {
@@ -189,17 +225,17 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
           ? Math.round(0.3 * startMinutes + 0.7 * existing.preferredStartMinutes)
           : startMinutes;
 
-        const next = {
-          ...prev,
-          [sig]: {
-            signature: sig,
-            typicalDurationMinutes: newDuration,
-            preferredStartMinutes: newPreferred,
-            sampleCount: (existing?.sampleCount ?? 0) + 1,
-            lastUsed: new Date().toISOString(),
-          },
+        const taskData = {
+          signature: sig,
+          typicalDurationMinutes: newDuration,
+          preferredStartMinutes: newPreferred,
+          sampleCount: (existing?.sampleCount ?? 0) + 1,
+          lastUsed: new Date().toISOString(),
         };
+
+        const next = { ...prev, [sig]: taskData };
         AsyncStorage.setItem(LEARNED_KEY, JSON.stringify(next)).catch(console.warn);
+        syncToServer("POST", "/api/learned-tasks", taskData);
         return next;
       });
     },
@@ -222,7 +258,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
           b.id === blockId ? { ...b, isCompleted: nowComplete } : b
         ),
       };
-      persistCurrentSchedule(next);
+      persistSchedule(next);
       return next;
     });
     setTimeout(() => {
@@ -230,13 +266,14 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         recordTaskCompletion(completedBlock.title, completedBlock.durationMinutes, completedBlock.startMinutes);
       }
     }, 0);
-  }, [persistCurrentSchedule, recordTaskCompletion]);
+  }, [persistSchedule, recordTaskCompletion]);
 
   const resetLearnedTask = useCallback((signature: string) => {
     setLearnedTasks((prev) => {
       const next = { ...prev };
       delete next[signature];
       AsyncStorage.setItem(LEARNED_KEY, JSON.stringify(next)).catch(console.warn);
+      syncToServer("DELETE", `/api/learned-tasks/${encodeURIComponent(signature)}`);
       return next;
     });
   }, []);
@@ -244,11 +281,13 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   const resetAllLearned = useCallback(() => {
     setLearnedTasks({});
     AsyncStorage.removeItem(LEARNED_KEY).catch(console.warn);
+    syncToServer("DELETE", "/api/learned-tasks");
   }, []);
 
   const clearHistory = useCallback(() => {
     setScheduleHistory([]);
     AsyncStorage.removeItem(HISTORY_KEY).catch(console.warn);
+    syncToServer("DELETE", "/api/schedules");
   }, []);
 
   const value = useMemo(

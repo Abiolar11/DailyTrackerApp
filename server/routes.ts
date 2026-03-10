@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
 import rateLimit from "express-rate-limit";
 import OpenAI from "openai";
+import * as storage from "./storage";
 
 const usePersonalKey = !!process.env.OPENAI_API_KEY;
 const openai = new OpenAI({
@@ -434,6 +435,131 @@ Include ALL tasks that should remain in the schedule (modified + unchanged). Eve
     } catch (error) {
       console.error("Error modifying schedule:", error);
       res.status(500).json({ error: "Failed to modify schedule" });
+    }
+  });
+
+  app.get("/api/settings", async (_req: Request, res: Response) => {
+    try {
+      const settings = await storage.getSettings();
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching settings:", error);
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.put("/api/settings", async (req: Request, res: Response) => {
+    try {
+      const { wakeTime, sleepTime, bufferMinutes, timezone, notificationsEnabled } = req.body;
+      if (wakeTime !== undefined && (typeof wakeTime !== "string" || !TIME_REGEX.test(wakeTime))) {
+        return res.status(400).json({ error: "Invalid wakeTime" });
+      }
+      if (sleepTime !== undefined && (typeof sleepTime !== "string" || !TIME_REGEX.test(sleepTime))) {
+        return res.status(400).json({ error: "Invalid sleepTime" });
+      }
+      if (bufferMinutes !== undefined && (typeof bufferMinutes !== "number" || bufferMinutes < 0 || bufferMinutes > 60)) {
+        return res.status(400).json({ error: "Invalid bufferMinutes" });
+      }
+      const updated = await storage.updateSettings(req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating settings:", error);
+      res.status(500).json({ error: "Failed to update settings" });
+    }
+  });
+
+  app.get("/api/schedules/:date", async (req: Request, res: Response) => {
+    try {
+      const schedule = await storage.getScheduleByDate(req.params.date);
+      if (!schedule) return res.status(404).json({ error: "No schedule found" });
+      res.json(schedule);
+    } catch (error) {
+      console.error("Error fetching schedule:", error);
+      res.status(500).json({ error: "Failed to fetch schedule" });
+    }
+  });
+
+  app.post("/api/schedules", async (req: Request, res: Response) => {
+    try {
+      const { id, date, prompt, generatedAt, wakeMinutes, sleepMinutes, blocks } = req.body;
+      if (!id || !date || !prompt || !generatedAt || wakeMinutes === undefined || sleepMinutes === undefined || !Array.isArray(blocks)) {
+        return res.status(400).json({ error: "Missing required schedule fields" });
+      }
+      await storage.saveSchedule(req.body);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error saving schedule:", error);
+      res.status(500).json({ error: "Failed to save schedule" });
+    }
+  });
+
+  app.delete("/api/schedules/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteSchedule(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting schedule:", error);
+      res.status(500).json({ error: "Failed to delete schedule" });
+    }
+  });
+
+  app.get("/api/schedules", async (_req: Request, res: Response) => {
+    try {
+      const history = await storage.getScheduleHistory();
+      res.json(history);
+    } catch (error) {
+      console.error("Error fetching history:", error);
+      res.status(500).json({ error: "Failed to fetch history" });
+    }
+  });
+
+  app.delete("/api/schedules", async (_req: Request, res: Response) => {
+    try {
+      await storage.clearScheduleHistory();
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error clearing history:", error);
+      res.status(500).json({ error: "Failed to clear history" });
+    }
+  });
+
+  app.get("/api/learned-tasks", async (_req: Request, res: Response) => {
+    try {
+      const tasks = await storage.getLearnedTasks();
+      res.json(tasks);
+    } catch (error) {
+      console.error("Error fetching learned tasks:", error);
+      res.status(500).json({ error: "Failed to fetch learned tasks" });
+    }
+  });
+
+  app.post("/api/learned-tasks", async (req: Request, res: Response) => {
+    try {
+      await storage.upsertLearnedTask(req.body);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error saving learned task:", error);
+      res.status(500).json({ error: "Failed to save learned task" });
+    }
+  });
+
+  app.delete("/api/learned-tasks/:signature", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteLearnedTask(decodeURIComponent(req.params.signature));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting learned task:", error);
+      res.status(500).json({ error: "Failed to delete learned task" });
+    }
+  });
+
+  app.delete("/api/learned-tasks", async (_req: Request, res: Response) => {
+    try {
+      await storage.deleteAllLearnedTasks();
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting all learned tasks:", error);
+      res.status(500).json({ error: "Failed to delete learned tasks" });
     }
   });
 
