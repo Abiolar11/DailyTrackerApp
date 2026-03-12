@@ -31,15 +31,22 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files — .env.example is kept (it is a safe template)
 .env
-.env.*
-!.env.example
+.env.local
+.env.*.local
 
 # typescript
 *.tsbuildinfo
 .vercel
 
-# build
+# build output
 static-build/
+
+# logs
 *.log
+
+# Replit internal
+.local/
+.replit
+replit.nix
