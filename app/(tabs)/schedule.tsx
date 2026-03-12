@@ -680,7 +680,14 @@ export default function ScheduleScreen() {
       isCompleted: false,
       flexibility: "high",
     };
-    addBlock(newBlock);
+    if (!isViewingCurrent && displaySchedule) {
+      setCurrentSchedule({
+        ...displaySchedule,
+        blocks: [...displaySchedule.blocks, newBlock].sort((a, b) => a.startMinutes - b.startMinutes),
+      });
+    } else {
+      addBlock(newBlock);
+    }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setShowAddModal(false);
   };
@@ -711,7 +718,7 @@ export default function ScheduleScreen() {
   };
 
   const handleAdjust = useCallback(async () => {
-    if (!currentSchedule || !adjustInstruction.trim()) return;
+    if (!displaySchedule || !adjustInstruction.trim()) return;
     setIsRegenerating(true);
     setShowAdjustModal(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -746,7 +753,7 @@ export default function ScheduleScreen() {
       ].sort((a, b) => a.startMinutes - b.startMinutes);
 
       setCurrentSchedule({
-        ...currentSchedule,
+        ...displaySchedule,
         id: generateId(),
         blocks: mergedBlocks,
         generatedAt: new Date().toISOString(),
@@ -759,7 +766,7 @@ export default function ScheduleScreen() {
     } finally {
       setIsRegenerating(false);
     }
-  }, [currentSchedule, adjustInstruction, blocks, settings, wakeMinutes, sleepMinutes, setCurrentSchedule]);
+  }, [displaySchedule, adjustInstruction, blocks, settings, wakeMinutes, sleepMinutes, setCurrentSchedule]);
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
@@ -838,7 +845,7 @@ export default function ScheduleScreen() {
             </Pressable>
           </View>
         </View>
-        {isViewingCurrent && (
+        {!!displaySchedule && (
         <Pressable
           onPress={() => { setAdjustInstruction(""); setShowAdjustModal(true); }}
           disabled={isRegenerating}
@@ -1081,7 +1088,7 @@ export default function ScheduleScreen() {
       </Modal>
 
       {/* Add Task FAB */}
-      {isViewingCurrent && (
+      {!!displaySchedule && (
       <Pressable
         onPress={openAddModal}
         style={({ pressed }) => [
